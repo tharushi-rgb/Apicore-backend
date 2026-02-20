@@ -21,8 +21,7 @@ if (process.env.DATABASE_URL) {
     process.exit(1);
   });
   module.exports = pgDb;
-  return; // CJS return exits the module early
-}
+} else {
 
 // ─── SQLite path (local dev) ──────────────────────────────────────────────────
 const Database = require('better-sqlite3');
@@ -77,3 +76,5 @@ runMigrations();
 console.log('✓ Connected to SQLite database at', dbPath);
 
 module.exports = db;
+
+} // end else (SQLite path)
