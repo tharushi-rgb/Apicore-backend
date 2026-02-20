@@ -1,0 +1,26 @@
+# render.yaml — Render deployment configuration for Apicore-backend
+# https://render.com/docs/render-yaml-spec
+#
+# ⚠️  SQLite note: Render's free tier does NOT have persistent disk.
+#     Your data will be wiped on every deploy.
+#     For a persistent database, either:
+#       a) Add a Render Persistent Disk (paid) and set DATABASE_PATH=/data/apicore.db
+#       b) Migrate to Render's managed PostgreSQL (requires schema changes)
+#     For a demo / development deployment the default SQLite setup is fine.
+
+services:
+  - type: web
+    name: apicore-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true   # Render auto-generates a secure random value
+      - key: FRONTEND_URL
+        sync: false           # Set this manually in the Render dashboard after deploying frontend
+      - key: DATABASE_PATH
+        value: /opt/render/project/src/data/apicore.db
