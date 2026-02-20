@@ -8,6 +8,12 @@
 #       b) Migrate to Render's managed PostgreSQL (requires schema changes)
 #     For a demo / development deployment the default SQLite setup is fine.
 
+databases:
+  - name: apicore-db
+    plan: free
+    databaseName: apicore
+    user: apicore_user
+
 services:
   - type: web
     name: apicore-backend
@@ -19,8 +25,10 @@ services:
       - key: NODE_ENV
         value: production
       - key: JWT_SECRET
-        generateValue: true   # Render auto-generates a secure random value
+        generateValue: true
       - key: FRONTEND_URL
-        sync: false           # Set this manually in the Render dashboard after deploying frontend
-      - key: DATABASE_PATH
-        value: /opt/render/project/src/data/apicore.db
+        sync: false           # Set manually after deploying frontend
+      - key: DATABASE_URL
+        fromDatabase:
+          name: apicore-db
+          property: connectionString
