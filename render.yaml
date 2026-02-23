@@ -1,18 +1,8 @@
 # render.yaml — Render deployment configuration for Apicore-backend
 # https://render.com/docs/render-yaml-spec
 #
-# ⚠️  SQLite note: Render's free tier does NOT have persistent disk.
-#     Your data will be wiped on every deploy.
-#     For a persistent database, either:
-#       a) Add a Render Persistent Disk (paid) and set DATABASE_PATH=/data/apicore.db
-#       b) Migrate to Render's managed PostgreSQL (requires schema changes)
-#     For a demo / development deployment the default SQLite setup is fine.
-
-databases:
-  - name: apicore-db
-    plan: free
-    databaseName: apicore
-    user: apicore_user
+# Database: Supabase PostgreSQL (external)
+# Set DATABASE_URL in the Render Dashboard → Environment to the Supabase connection string.
 
 services:
   - type: web
@@ -20,7 +10,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node src/index.js
     envVars:
       - key: NODE_ENV
         value: production
@@ -29,6 +19,4 @@ services:
       - key: FRONTEND_URL
         sync: false           # Set manually after deploying frontend
       - key: DATABASE_URL
-        fromDatabase:
-          name: apicore-db
-          property: connectionString
+        sync: false           # Set manually to Supabase connection string
