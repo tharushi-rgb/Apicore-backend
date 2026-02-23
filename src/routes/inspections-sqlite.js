@@ -56,6 +56,25 @@ router.post('/', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
 
+    // GPS geo-fencing check (R9.2/R9.3) — block if >50m from hive location
+    const userLat = body.userLatitude || body.user_latitude;
+    const userLng = body.userLongitude || body.user_longitude;
+    if (userLat && userLng && hive.gps_latitude && hive.gps_longitude) {
+      const toRad = (deg) => deg * (Math.PI / 180);
+      const R = 6371000; // Earth radius in meters
+      const dLat = toRad(hive.gps_latitude - userLat);
+      const dLng = toRad(hive.gps_longitude - userLng);
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(userLat)) * Math.cos(toRad(hive.gps_latitude)) * Math.sin(dLng / 2) ** 2;
+      const distance = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      if (distance > 50) {
+        return res.status(400).json({
+          success: false,
+          message: `GPS verification failed. You are ${Math.round(distance)}m from the hive. Must be within 50m to record an inspection.`,
+          distance: Math.round(distance)
+        });
+      }
+    }
+
     const normalizedApiaryId = apiaryId ? Number(apiaryId) : hive.apiary_id || null;
     const normalizedQueenPresent = typeof queenPresent === 'boolean' ? (queenPresent ? 1 : 0) : queenPresent;
     const normalizedPestDetected = typeof pestDetected === 'boolean' ? (pestDetected ? 1 : 0) : pestDetected;

@@ -184,6 +184,25 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     // Notify on status change
     if (body.status && body.status !== existing.status) {
+      // Auto-record as income when completed via PUT
+      if (body.status === 'completed' && existing.status !== 'completed') {
+        const payAmt = body.paymentAmount !== undefined ? body.paymentAmount : existing.payment_amount;
+        if (payAmt) {
+          try {
+            const cDate = new Date().toISOString().split('T')[0];
+            await db.prepare(`
+              INSERT INTO income (
+                user_id, income_date, income_type, amount, description, notes
+              ) VALUES (?, ?, 'client_service', ?, ?, ?)
+            `).run(
+              existing.user_id, cDate, payAmt,
+              `Client Service: ${existing.service_type.replace('_', ' ')} for ${existing.client_name}`,
+              `Auto-recorded from completed client service #${existing.id}`
+            );
+          } catch (incErr) { console.error('Auto-record income error (non-fatal):', incErr); }
+        }
+      }
+
       // Notify admin if helper updates status
       if (existing.user_id !== req.userId) {
         createNotification(
@@ -241,6 +260,25 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     await db.prepare(`
       UPDATE client_services SET status = ?, completed_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(status, completedDate, req.params.id);
+
+    // Auto-record client service as income when completed (R15 auto-record)
+    if (status === 'completed' && existing.payment_amount && existing.status !== 'completed') {
+      try {
+        await db.prepare(`
+          INSERT INTO income (
+            user_id, income_date, income_type, amount, description, notes
+          ) VALUES (?, ?, 'client_service', ?, ?, ?)
+        `).run(
+          existing.user_id,
+          completedDate,
+          existing.payment_amount,
+          `Client Service: ${existing.service_type.replace('_', ' ')} for ${existing.client_name}`,
+          `Auto-recorded from completed client service #${existing.id}`
+        );
+      } catch (incomeErr) {
+        console.error('Auto-record income error (non-fatal):', incomeErr);
+      }
+    }
 
     const service = await db.prepare(`
       SELECT cs.*, u.name as assigned_to_name

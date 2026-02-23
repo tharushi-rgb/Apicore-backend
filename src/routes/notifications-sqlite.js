@@ -174,6 +174,45 @@ async function generateAutomatedAlerts(userId) {
         );
       }
     }
+
+    // 6. Contract expiry notifications (30-day and 7-day warnings)
+    const expiringApiaries = await db.prepare(`
+      SELECT a.id, a.name, a.established_date,
+        CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) as days_until_expiry
+      FROM apiaries a
+      WHERE a.user_id = ? AND a.status = 'active' AND a.established_date IS NOT NULL
+        AND CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) <= 30
+        AND CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) >= 0
+    `).all(userId);
+
+    for (const apiary of expiringApiaries) {
+      const severity = apiary.days_until_expiry <= 7 ? 'critical' : 'warning';
+      const exists = await db.prepare(`
+        SELECT id FROM notifications
+        WHERE user_id = ? AND notification_type = 'contract_expiry' AND related_id = ?
+          AND date(created_at) >= date('now', '-3 days')
+      `).get(userId, apiary.id);
+
+      if (!exists) {
+        await db.prepare(`
+          INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
+          VALUES (?, 'contract_expiry', ?, ?, ?, 'apiary', ?)
+        `).run(
+          userId, severity,
+          'Contract Expiry Warning',
+          `Apiary '${apiary.name}' contract expires in ${apiary.days_until_expiry} days. Renew or take action.`,
+          apiary.id
+        );
+      }
+    }
+
+    // 7. Auto-flag expired apiaries
+    await db.prepare(`
+      UPDATE apiaries
+      SET status = 'expired', updated_at = datetime('now')
+      WHERE user_id = ? AND status = 'active' AND established_date IS NOT NULL
+        AND julianday(established_date, '+1 year') < julianday('now')
+    `).run(userId);
   }
 
   // ─── For Helpers ─────────────────────────────────────────────────
