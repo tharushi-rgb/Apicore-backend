@@ -9,8 +9,8 @@ const db = require('../config/database.cjs');
 const router = express.Router();
 
 // Helper: create notification
-function createNotification(userId, type, severity, title, message, relatedType, relatedId) {
-  db.prepare(`
+async function createNotification(userId, type, severity, title, message, relatedType, relatedId) {
+  await db.prepare(`
     INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run(userId, type, severity, title, message, relatedType, relatedId);
@@ -19,14 +19,14 @@ function createNotification(userId, type, severity, title, message, relatedType,
 // @route   GET /api/clients
 // @desc    Get all client services for admin, or assigned tasks for helper
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     const isHelper = user && user.role === 'helper';
 
     let services;
     if (isHelper) {
-      services = db.prepare(`
+      services = await db.prepare(`
         SELECT cs.*, u.name as assigned_to_name
         FROM client_services cs
         LEFT JOIN users u ON cs.assigned_to = u.id
@@ -34,7 +34,7 @@ router.get('/', authenticateToken, (req, res) => {
         ORDER BY cs.created_at DESC
       `).all(req.userId);
     } else {
-      services = db.prepare(`
+      services = await db.prepare(`
         SELECT cs.*, u.name as assigned_to_name
         FROM client_services cs
         LEFT JOIN users u ON cs.assigned_to = u.id
@@ -53,9 +53,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   GET /api/clients/:id
 // @desc    Get single client service
 // @access  Private
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const service = db.prepare(`
+    const service = await db.prepare(`
       SELECT cs.*, u.name as assigned_to_name
       FROM client_services cs
       LEFT JOIN users u ON cs.assigned_to = u.id
@@ -76,9 +76,9 @@ router.get('/:id', authenticateToken, (req, res) => {
 // @route   POST /api/clients
 // @desc    Create new client service (admin only)
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     if (user && user.role === 'helper') {
       return res.status(403).json({ success: false, message: 'Only admin/beekeeper can create client services' });
     }
@@ -105,7 +105,7 @@ router.post('/', authenticateToken, (req, res) => {
 
     const status = assignedTo ? 'assigned' : 'pending';
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO client_services (
         user_id, client_name, client_contact, client_email,
         service_type, description, location, gps_latitude, gps_longitude,
@@ -119,7 +119,7 @@ router.post('/', authenticateToken, (req, res) => {
       paymentAmount, expenseProofRequired, notes
     );
 
-    const service = db.prepare('SELECT * FROM client_services WHERE id = ?').get(result.lastInsertRowid);
+    const service = await db.prepare('SELECT * FROM client_services WHERE id = ?').get(result.lastInsertRowid);
 
     // If assigned, notify the assignee
     if (assignedTo) {
@@ -141,15 +141,15 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/clients/:id
 // @desc    Update client service
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Client service not found' });
     }
 
     const body = req.body;
-    db.prepare(`
+    await db.prepare(`
       UPDATE client_services
       SET client_name = ?, client_contact = ?, client_email = ?,
           service_type = ?, description = ?, location = ?,
@@ -179,7 +179,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       req.params.id
     );
 
-    const service = db.prepare(`
+    const service = await db.prepare(`
       SELECT cs.*, u.name as assigned_to_name
       FROM client_services cs
       LEFT JOIN users u ON cs.assigned_to = u.id
@@ -228,9 +228,9 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   PATCH /api/clients/:id/status
 // @desc    Update status only (for helpers updating task progress)
 // @access  Private
-router.patch('/:id/status', authenticateToken, (req, res) => {
+router.patch('/:id/status', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Client service not found' });
     }
@@ -242,11 +242,11 @@ router.patch('/:id/status', authenticateToken, (req, res) => {
 
     const completedDate = status === 'completed' ? new Date().toISOString().split('T')[0] : existing.completed_date;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE client_services SET status = ?, completed_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(status, completedDate, req.params.id);
 
-    const service = db.prepare(`
+    const service = await db.prepare(`
       SELECT cs.*, u.name as assigned_to_name
       FROM client_services cs
       LEFT JOIN users u ON cs.assigned_to = u.id
@@ -255,7 +255,7 @@ router.patch('/:id/status', authenticateToken, (req, res) => {
 
     // Notify admin of status change
     if (existing.user_id !== req.userId) {
-      const user = db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId);
+      const user = await db.prepare('SELECT name FROM users WHERE id = ?').get(req.userId);
       createNotification(
         existing.user_id, 'task_status', status === 'completed' ? 'info' : 'warning',
         'Task Status Updated',
@@ -274,14 +274,14 @@ router.patch('/:id/status', authenticateToken, (req, res) => {
 // @route   DELETE /api/clients/:id
 // @desc    Delete client service
 // @access  Private (admin only)
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM client_services WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Client service not found' });
     }
 
-    db.prepare('DELETE FROM client_services WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM client_services WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Client service deleted' });
   } catch (error) {
     console.error('Delete client service error:', error);

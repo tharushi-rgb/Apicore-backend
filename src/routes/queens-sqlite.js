@@ -11,14 +11,14 @@ const router = express.Router();
 // @route   GET /api/queens
 // @desc    Get queens, optionally filtered by hiveId
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { hiveId, hive_id } = req.query;
     const filterHiveId = hiveId || hive_id;
 
     let queens;
     if (filterHiveId) {
-      queens = db.prepare(`
+      queens = await db.prepare(`
         SELECT q.*, h.name as hive_name
         FROM queens q
         LEFT JOIN hives h ON q.hive_id = h.id
@@ -26,7 +26,7 @@ router.get('/', authenticateToken, (req, res) => {
         ORDER BY q.introduced_date DESC
       `).all(filterHiveId);
     } else {
-      queens = db.prepare(`
+      queens = await db.prepare(`
         SELECT q.*, h.name as hive_name
         FROM queens q
         LEFT JOIN hives h ON q.hive_id = h.id
@@ -44,9 +44,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   GET /api/queens/:id
 // @desc    Get single queen by ID
 // @access  Private
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const queen = db.prepare(`
+    const queen = await db.prepare(`
       SELECT q.*, h.name as hive_name
       FROM queens q
       LEFT JOIN hives h ON q.hive_id = h.id
@@ -67,7 +67,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 // @route   POST /api/queens
 // @desc    Add queen record to hive
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     const hiveId = body.hiveId || body.hive_id;
@@ -86,25 +86,25 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Verify hive exists
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
 
     // Set any existing active queen to superseded when adding new active queen
     if (status === 'active') {
-      db.prepare("UPDATE queens SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE hive_id = ? AND status = 'active'")
+      await db.prepare("UPDATE queens SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE hive_id = ? AND status = 'active'")
         .run(hiveId);
       // Update the hive queen_present flag
-      db.prepare('UPDATE hives SET queen_present = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(hiveId);
+      await db.prepare('UPDATE hives SET queen_present = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(hiveId);
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO queens (hive_id, breed, source, introduced_date, status, marked_color, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(hiveId, breed, source, introducedDate, status, markedColor, notes);
 
-    const queen = db.prepare('SELECT * FROM queens WHERE id = ?').get(result.lastInsertRowid);
+    const queen = await db.prepare('SELECT * FROM queens WHERE id = ?').get(result.lastInsertRowid);
 
     res.status(201).json({
       success: true,
@@ -120,9 +120,9 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/queens/:id
 // @desc    Update queen record
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Queen record not found' });
     }
@@ -137,27 +137,27 @@ router.put('/:id', authenticateToken, (req, res) => {
 
     // If changing to active, supersede other active queens in the same hive
     if (status === 'active' && existing.status !== 'active') {
-      db.prepare("UPDATE queens SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE hive_id = ? AND status = 'active' AND id != ?")
+      await db.prepare("UPDATE queens SET status = 'superseded', updated_at = CURRENT_TIMESTAMP WHERE hive_id = ? AND status = 'active' AND id != ?")
         .run(existing.hive_id, req.params.id);
-      db.prepare('UPDATE hives SET queen_present = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(existing.hive_id);
+      await db.prepare('UPDATE hives SET queen_present = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(existing.hive_id);
     }
 
     // If changing away from active, check if any queens remain active
     if (status !== 'active' && existing.status === 'active') {
-      const otherActive = db.prepare("SELECT COUNT(*) as count FROM queens WHERE hive_id = ? AND status = 'active' AND id != ?")
+      const otherActive = await db.prepare("SELECT COUNT(*) as count FROM queens WHERE hive_id = ? AND status = 'active' AND id != ?")
         .get(existing.hive_id, req.params.id);
       if (otherActive.count === 0) {
-        db.prepare('UPDATE hives SET queen_present = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(existing.hive_id);
+        await db.prepare('UPDATE hives SET queen_present = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(existing.hive_id);
       }
     }
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE queens
       SET breed = ?, source = ?, introduced_date = ?, status = ?, marked_color = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(breed, source, introducedDate, status, markedColor, notes, req.params.id);
 
-    const queen = db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
+    const queen = await db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
     res.json({ success: true, message: 'Queen updated', data: { queen } });
   } catch (error) {
     console.error('Update queen error:', error);
@@ -168,21 +168,21 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/queens/:id
 // @desc    Delete queen record
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const queen = db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
+    const queen = await db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
     if (!queen) {
       return res.status(404).json({ success: false, message: 'Queen record not found' });
     }
 
-    db.prepare('DELETE FROM queens WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM queens WHERE id = ?').run(req.params.id);
 
     // Check if hive still has an active queen
     if (queen.status === 'active') {
-      const otherActive = db.prepare("SELECT COUNT(*) as count FROM queens WHERE hive_id = ? AND status = 'active'")
+      const otherActive = await db.prepare("SELECT COUNT(*) as count FROM queens WHERE hive_id = ? AND status = 'active'")
         .get(queen.hive_id);
       if (otherActive.count === 0) {
-        db.prepare('UPDATE hives SET queen_present = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(queen.hive_id);
+        await db.prepare('UPDATE hives SET queen_present = 0, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(queen.hive_id);
       }
     }
 

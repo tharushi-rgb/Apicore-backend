@@ -11,7 +11,7 @@ const router = express.Router();
 // @route   GET /api/inspections
 // @desc    Get inspections (admin view, optional hiveId)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { hiveId } = req.query;
 
@@ -26,8 +26,8 @@ router.get('/', authenticateToken, (req, res) => {
     `;
 
     const inspections = hiveId
-      ? db.prepare(baseQuery).all(hiveId)
-      : db.prepare(baseQuery).all();
+      ? await db.prepare(baseQuery).all(hiveId)
+      : await db.prepare(baseQuery).all();
 
     res.json({ success: true, data: { inspections } });
   } catch (error) {
@@ -39,7 +39,7 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   POST /api/inspections
 // @desc    Create new inspection
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     // Accept both camelCase and snake_case payloads from Postman
@@ -55,7 +55,7 @@ router.post('/', authenticateToken, (req, res) => {
       return res.status(400).json({ success: false, message: 'Hive and inspection date are required' });
     }
 
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
@@ -64,7 +64,7 @@ router.post('/', authenticateToken, (req, res) => {
     const normalizedQueenPresent = typeof queenPresent === 'boolean' ? (queenPresent ? 1 : 0) : queenPresent;
     const normalizedPestDetected = typeof pestDetected === 'boolean' ? (pestDetected ? 1 : 0) : pestDetected;
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO inspections (
         user_id, hive_id, apiary_id, inspection_date, queen_present,
         colony_strength, pest_detected, notes
@@ -81,13 +81,13 @@ router.post('/', authenticateToken, (req, res) => {
     );
 
     // Update hive last inspection fields
-    db.prepare(`
+    await db.prepare(`
       UPDATE hives
       SET last_inspection_date = ?, inspection_overdue = 0, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(inspectionDate, hiveId);
 
-    const inspection = db.prepare('SELECT * FROM inspections WHERE id = ?').get(result.lastInsertRowid);
+    const inspection = await db.prepare('SELECT * FROM inspections WHERE id = ?').get(result.lastInsertRowid);
 
     res.status(201).json({ success: true, data: { inspection }, id: inspection.id });
   } catch (error) {
@@ -99,9 +99,9 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/inspections/:id
 // @desc    Update inspection
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Inspection not found' });
     }
@@ -125,7 +125,7 @@ router.put('/:id', authenticateToken, (req, res) => {
         ? (pestDetected ? 1 : 0)
         : pestDetected;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE inspections
       SET inspection_date = ?, queen_present = ?, colony_strength = ?,
           pest_detected = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -139,7 +139,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       req.params.id
     );
 
-    const inspection = db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
+    const inspection = await db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: { inspection } });
   } catch (error) {
     console.error('Update inspection error:', error);
@@ -150,14 +150,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/inspections/:id
 // @desc    Delete inspection
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM inspections WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Inspection not found' });
     }
 
-    db.prepare('DELETE FROM inspections WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM inspections WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Inspection deleted successfully' });
   } catch (error) {
     console.error('Delete inspection error:', error);

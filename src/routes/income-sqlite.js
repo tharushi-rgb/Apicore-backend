@@ -11,9 +11,9 @@ const router = express.Router();
 // @route   GET /api/income
 // @desc    Get income (admin view)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const income = db.prepare(`
+    const income = await db.prepare(`
       SELECT i.*, h.harvest_type as harvest_type
       FROM income i
       LEFT JOIN harvests h ON i.harvest_id = h.id
@@ -30,7 +30,7 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   POST /api/income
 // @desc    Create income
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     // Accept both camelCase and snake_case payloads from Postman
@@ -48,11 +48,11 @@ router.post('/', authenticateToken, (req, res) => {
 
     const normalizedHarvestId = harvestId ? Number(harvestId) : null;
     if (normalizedHarvestId) {
-      const harvest = db.prepare('SELECT * FROM harvests WHERE id = ?').get(normalizedHarvestId);
+      const harvest = await db.prepare('SELECT * FROM harvests WHERE id = ?').get(normalizedHarvestId);
       if (!harvest) return res.status(404).json({ success: false, message: 'Harvest not found' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO income (
         user_id, harvest_id, income_date, income_type,
         amount, buyer_name, description, notes
@@ -68,7 +68,7 @@ router.post('/', authenticateToken, (req, res) => {
       notes || null
     );
 
-    const income = db.prepare('SELECT * FROM income WHERE id = ?').get(result.lastInsertRowid);
+    const income = await db.prepare('SELECT * FROM income WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json({ success: true, data: { income }, id: income.id });
   } catch (error) {
     console.error('Create income error:', error);
@@ -79,9 +79,9 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/income/:id
 // @desc    Update income
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Income not found' });
     }
@@ -95,7 +95,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       notes,
     } = req.body;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE income
       SET income_date = ?, income_type = ?, amount = ?, buyer_name = ?,
           description = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -110,7 +110,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       req.params.id
     );
 
-    const income = db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
+    const income = await db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: { income } });
   } catch (error) {
     console.error('Update income error:', error);
@@ -121,14 +121,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/income/:id
 // @desc    Delete income
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM income WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Income not found' });
     }
 
-    db.prepare('DELETE FROM income WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM income WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Income deleted successfully' });
   } catch (error) {
     console.error('Delete income error:', error);

@@ -189,7 +189,7 @@ router.post('/analyze', authenticateToken, async (req, res) => {
     }
 
     // ── 2. Zone saturation: count hives within 15km ────────────────────────
-    const allHives = db.prepare(`
+    const allHives = await db.prepare(`
       SELECT h.id, a.area as location, a.district as district
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id

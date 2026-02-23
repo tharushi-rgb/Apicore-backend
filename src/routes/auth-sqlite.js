@@ -36,7 +36,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Check if user already exists
-    const existingUser = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const existingUser = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
     
     if (existingUser) {
       return res.status(400).json({
@@ -49,13 +49,13 @@ router.post('/register', async (req, res) => {
     const hashedPassword = await bcrypt.hash(password, 10);
 
     // Insert new user
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO users (name, email, password, phone, district, role, years_experience)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(name, email, hashedPassword, phone, district, role, yearsExperience);
 
     // Get the created user
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
 
     // Generate JWT token
     const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
@@ -96,7 +96,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Find user
-    const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email);
+    const user = await db.prepare('SELECT * FROM users WHERE email = ?').get(email);
 
     if (!user) {
       return res.status(401).json({
@@ -141,9 +141,9 @@ router.post('/login', async (req, res) => {
 // @route   GET /api/auth/me
 // @desc    Get current user
 // @access  Private (requires JWT token)
-router.get('/me', authenticateToken, (req, res) => {
+router.get('/me', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     
     if (!user) {
       return res.status(404).json({

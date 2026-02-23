@@ -15,9 +15,9 @@ const router = express.Router();
 // @route   POST /api/helpers/invite
 // @desc    Admin creates a helper invitation
 // @access  Private (admin only)
-router.post('/invite', authenticateToken, (req, res) => {
+router.post('/invite', authenticateToken, async (req, res) => {
   try {
-    const admin = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const admin = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     if (!admin || admin.role === 'helper') {
       return res.status(403).json({ success: false, message: 'Only admin/beekeeper users can invite helpers' });
     }
@@ -28,13 +28,13 @@ router.post('/invite', authenticateToken, (req, res) => {
     }
 
     // Check if already registered
-    const existingUser = db.prepare('SELECT id FROM users WHERE email = ?').get(email);
+    const existingUser = await db.prepare('SELECT id FROM users WHERE email = ?').get(email);
     if (existingUser) {
       return res.status(400).json({ success: false, message: 'A user with this email already exists' });
     }
 
     // Check if pending invitation already exists
-    const existingInvite = db.prepare("SELECT id FROM helper_invitations WHERE email = ? AND status = 'pending'").get(email);
+    const existingInvite = await db.prepare("SELECT id FROM helper_invitations WHERE email = ? AND status = 'pending'").get(email);
     if (existingInvite) {
       return res.status(400).json({ success: false, message: 'An invitation is already pending for this email' });
     }
@@ -43,7 +43,7 @@ router.post('/invite', authenticateToken, (req, res) => {
     const token = crypto.randomBytes(4).toString('hex').toUpperCase();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
 
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO helper_invitations (invited_by, email, token, status, expires_at)
       VALUES (?, ?, ?, 'pending', ?)
     `).run(req.userId, email, token, expiresAt);
@@ -62,9 +62,9 @@ router.post('/invite', authenticateToken, (req, res) => {
 // @route   GET /api/helpers/invitations
 // @desc    Get all invitations created by admin
 // @access  Private (admin)
-router.get('/invitations', authenticateToken, (req, res) => {
+router.get('/invitations', authenticateToken, async (req, res) => {
   try {
-    const invitations = db.prepare(`
+    const invitations = await db.prepare(`
       SELECT hi.*, u.name as invited_by_name
       FROM helper_invitations hi
       LEFT JOIN users u ON hi.invited_by = u.id
@@ -82,14 +82,14 @@ router.get('/invitations', authenticateToken, (req, res) => {
 // @route   POST /api/helpers/verify-token
 // @desc    Verify an invitation token (public — for registration form)
 // @access  Public
-router.post('/verify-token', (req, res) => {
+router.post('/verify-token', async (req, res) => {
   try {
     const { token } = req.body;
     if (!token) {
       return res.status(400).json({ success: false, message: 'Token is required' });
     }
 
-    const invitation = db.prepare(`
+    const invitation = await db.prepare(`
       SELECT hi.*, u.name as invited_by_name
       FROM helper_invitations hi
       LEFT JOIN users u ON hi.invited_by = u.id
@@ -105,7 +105,7 @@ router.post('/verify-token', (req, res) => {
     }
 
     if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
-      db.prepare("UPDATE helper_invitations SET status = 'expired' WHERE id = ?").run(invitation.id);
+      await db.prepare("UPDATE helper_invitations SET status = 'expired' WHERE id = ?").run(invitation.id);
       return res.status(400).json({ success: false, message: 'This invitation has expired' });
     }
 
@@ -135,7 +135,7 @@ router.post('/register', async (req, res) => {
     }
 
     // Find invitation
-    const invitation = db.prepare("SELECT * FROM helper_invitations WHERE token = ? AND status = 'pending'")
+    const invitation = await db.prepare("SELECT * FROM helper_invitations WHERE token = ? AND status = 'pending'")
       .get(token.toUpperCase().trim());
 
     if (!invitation) {
@@ -143,28 +143,28 @@ router.post('/register', async (req, res) => {
     }
 
     if (invitation.expires_at && new Date(invitation.expires_at) < new Date()) {
-      db.prepare("UPDATE helper_invitations SET status = 'expired' WHERE id = ?").run(invitation.id);
+      await db.prepare("UPDATE helper_invitations SET status = 'expired' WHERE id = ?").run(invitation.id);
       return res.status(400).json({ success: false, message: 'This invitation has expired' });
     }
 
     // Check if email already registered
-    const existing = db.prepare('SELECT id FROM users WHERE email = ?').get(invitation.email);
+    const existing = await db.prepare('SELECT id FROM users WHERE email = ?').get(invitation.email);
     if (existing) {
       return res.status(400).json({ success: false, message: 'A user with this email already exists' });
     }
 
     // Create helper user
     const hashedPassword = await bcrypt.hash(password, 10);
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO users (name, email, password, phone, district, role)
       VALUES (?, ?, ?, ?, ?, 'helper')
     `).run(name, hashedPassword, invitation.email, phone || null, district || null);
 
     // Mark invitation as accepted
-    db.prepare("UPDATE helper_invitations SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ?")
+    await db.prepare("UPDATE helper_invitations SET status = 'accepted', accepted_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(invitation.id);
 
-    const user = db.prepare('SELECT id, name, email, phone, district, role FROM users WHERE id = ?')
+    const user = await db.prepare('SELECT id, name, email, phone, district, role FROM users WHERE id = ?')
       .get(result.lastInsertRowid);
 
     res.status(201).json({
@@ -183,21 +183,22 @@ router.post('/register', async (req, res) => {
 // @route   GET /api/helpers
 // @desc    Get all helpers (for admin to manage)
 // @access  Private (admin)
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const helpers = db.prepare(`
+    const helpers = await db.prepare(`
       SELECT id, name, email, phone, district, role, created_at
       FROM users WHERE role = 'helper'
       ORDER BY name ASC
     `).all();
 
     // Get assignment counts
-    const helpersWithCounts = helpers.map(h => {
-      const assignmentCount = db.prepare(
+    const helpersWithCounts = [];
+    for (const h of helpers) {
+      const row = await db.prepare(
         "SELECT COUNT(*) as count FROM hive_assignments WHERE helper_id = ? AND status = 'active'"
-      ).get(h.id).count;
-      return { ...h, assignment_count: assignmentCount };
-    });
+      ).get(h.id);
+      helpersWithCounts.push({ ...h, assignment_count: row ? row.count : 0 });
+    }
 
     res.json({ success: true, data: { helpers: helpersWithCounts } });
   } catch (error) {
@@ -209,7 +210,7 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   POST /api/helpers/assign
 // @desc    Assign hive(s) to a helper
 // @access  Private (admin)
-router.post('/assign', authenticateToken, (req, res) => {
+router.post('/assign', authenticateToken, async (req, res) => {
   try {
     const { helperId, hiveIds, notes } = req.body;
     if (!helperId || !hiveIds || !Array.isArray(hiveIds) || hiveIds.length === 0) {
@@ -217,24 +218,24 @@ router.post('/assign', authenticateToken, (req, res) => {
     }
 
     // Verify helper exists
-    const helper = db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'helper'").get(helperId);
+    const helper = await db.prepare("SELECT id, name FROM users WHERE id = ? AND role = 'helper'").get(helperId);
     if (!helper) {
       return res.status(404).json({ success: false, message: 'Helper not found' });
     }
 
-    const insertStmt = db.prepare(`
+    const insertStmt = await db.prepare(`
       INSERT INTO hive_assignments (hive_id, helper_id, assigned_by, notes)
       VALUES (?, ?, ?, ?)
     `);
 
     // Revoke existing assignments for these hives to this helper first to avoid duplicates
-    const revokeStmt = db.prepare(
+    const revokeStmt = await db.prepare(
       "UPDATE hive_assignments SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE hive_id = ? AND helper_id = ? AND status = 'active'"
     );
 
     let assigned = 0;
     for (const hiveId of hiveIds) {
-      const hive = db.prepare('SELECT id FROM hives WHERE id = ?').get(hiveId);
+      const hive = await db.prepare('SELECT id FROM hives WHERE id = ?').get(hiveId);
       if (hive) {
         revokeStmt.run(hiveId, helperId);
         insertStmt.run(hiveId, helperId, req.userId, notes || null);
@@ -256,14 +257,14 @@ router.post('/assign', authenticateToken, (req, res) => {
 // @route   DELETE /api/helpers/assign/:assignmentId
 // @desc    Revoke a hive assignment
 // @access  Private (admin)
-router.delete('/assign/:assignmentId', authenticateToken, (req, res) => {
+router.delete('/assign/:assignmentId', authenticateToken, async (req, res) => {
   try {
-    const assignment = db.prepare('SELECT * FROM hive_assignments WHERE id = ?').get(req.params.assignmentId);
+    const assignment = await db.prepare('SELECT * FROM hive_assignments WHERE id = ?').get(req.params.assignmentId);
     if (!assignment) {
       return res.status(404).json({ success: false, message: 'Assignment not found' });
     }
 
-    db.prepare("UPDATE hive_assignments SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE id = ?")
+    await db.prepare("UPDATE hive_assignments SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE id = ?")
       .run(req.params.assignmentId);
 
     res.json({ success: true, message: 'Assignment revoked' });
@@ -276,9 +277,9 @@ router.delete('/assign/:assignmentId', authenticateToken, (req, res) => {
 // @route   GET /api/helpers/my-assignments
 // @desc    Get assignments for the logged-in helper
 // @access  Private (helper)
-router.get('/my-assignments', authenticateToken, (req, res) => {
+router.get('/my-assignments', authenticateToken, async (req, res) => {
   try {
-    const assignments = db.prepare(`
+    const assignments = await db.prepare(`
       SELECT ha.*, h.name as hive_name, h.hive_type, h.status as hive_status,
              h.colony_strength, h.queen_present, h.pest_detected,
              h.last_inspection_date, h.inspection_overdue,
@@ -300,14 +301,15 @@ router.get('/my-assignments', authenticateToken, (req, res) => {
 // @route   GET /api/helpers/my-dashboard
 // @desc    Get helper-specific dashboard data (only assigned hives + their apiaries)
 // @access  Private (helper)
-router.get('/my-dashboard', authenticateToken, (req, res) => {
+router.get('/my-dashboard', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT id, name, email, phone, district, role FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT id, name, email, phone, district, role FROM users WHERE id = ?').get(req.userId);
 
     // Get assigned hive IDs
-    const assignedHiveIds = db.prepare(
+    const assignedRows = await db.prepare(
       "SELECT DISTINCT hive_id FROM hive_assignments WHERE helper_id = ? AND status = 'active'"
-    ).all(req.userId).map(r => r.hive_id);
+    ).all(req.userId);
+    const assignedHiveIds = assignedRows.map(r => r.hive_id);
 
     if (assignedHiveIds.length === 0) {
       return res.json({
@@ -325,7 +327,7 @@ router.get('/my-dashboard', authenticateToken, (req, res) => {
     const placeholders = assignedHiveIds.map(() => '?').join(',');
 
     // Get hives
-    const hives = db.prepare(`
+    const hives = await db.prepare(`
       SELECT h.*, a.name as apiary_name, a.district as apiary_district
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id
@@ -338,7 +340,7 @@ router.get('/my-dashboard', authenticateToken, (req, res) => {
     let apiaries = [];
     if (apiaryIds.length > 0) {
       const apiaryPlaceholders = apiaryIds.map(() => '?').join(',');
-      apiaries = db.prepare(`
+      apiaries = await db.prepare(`
         SELECT a.*, (SELECT COUNT(*) FROM hives WHERE apiary_id = a.id) as hive_count
         FROM apiaries a WHERE a.id IN (${apiaryPlaceholders})
       `).all(...apiaryIds);
@@ -349,7 +351,7 @@ router.get('/my-dashboard', authenticateToken, (req, res) => {
     const pendingInspections = hives.filter(h => h.inspection_overdue).length;
 
     // Recent inspections on assigned hives
-    const recentInspections = db.prepare(`
+    const recentInspections = await db.prepare(`
       SELECT i.*, h.name as hive_name
       FROM inspections i
       JOIN hives h ON i.hive_id = h.id
@@ -382,9 +384,9 @@ router.get('/my-dashboard', authenticateToken, (req, res) => {
 // @route   GET /api/helpers/:helperId/assignments
 // @desc    Get all assignments for a specific helper (admin view)
 // @access  Private (admin)
-router.get('/:helperId/assignments', authenticateToken, (req, res) => {
+router.get('/:helperId/assignments', authenticateToken, async (req, res) => {
   try {
-    const assignments = db.prepare(`
+    const assignments = await db.prepare(`
       SELECT ha.*, h.name as hive_name, h.hive_type, h.status as hive_status,
              a.name as apiary_name
       FROM hive_assignments ha

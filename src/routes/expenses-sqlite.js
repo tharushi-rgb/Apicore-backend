@@ -11,7 +11,7 @@ const router = express.Router();
 // @route   GET /api/expenses
 // @desc    Get expenses (admin view, optional hiveId/apiaryId)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { hiveId, apiaryId } = req.query;
 
@@ -30,7 +30,7 @@ router.get('/', authenticateToken, (req, res) => {
     if (hiveId) params.push(hiveId);
     if (apiaryId) params.push(apiaryId);
 
-    const expenses = db.prepare(query).all(...params);
+    const expenses = await db.prepare(query).all(...params);
     res.json({ success: true, data: { expenses } });
   } catch (error) {
     console.error('Get expenses error:', error);
@@ -41,7 +41,7 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   POST /api/expenses
 // @desc    Create new expense
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     // Accept both camelCase and snake_case payloads from Postman
@@ -62,16 +62,16 @@ router.post('/', authenticateToken, (req, res) => {
     const normalizedApiaryId = apiaryId ? Number(apiaryId) : null;
 
     if (normalizedHiveId) {
-      const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(normalizedHiveId);
+      const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(normalizedHiveId);
       if (!hive) return res.status(404).json({ success: false, message: 'Hive not found' });
     }
 
     if (normalizedApiaryId) {
-      const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
+      const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
       if (!apiary) return res.status(404).json({ success: false, message: 'Apiary not found' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO expenses (
         user_id, hive_id, apiary_id, expense_date, expense_type,
         amount, description, receipt_image, notes
@@ -88,7 +88,7 @@ router.post('/', authenticateToken, (req, res) => {
       notes || null
     );
 
-    const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(result.lastInsertRowid);
+    const expense = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(result.lastInsertRowid);
     res.status(201).json({ success: true, data: { expense }, id: expense.id });
   } catch (error) {
     console.error('Create expense error:', error);
@@ -99,9 +99,9 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/expenses/:id
 // @desc    Update expense
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Expense not found' });
     }
@@ -115,7 +115,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       notes,
     } = req.body;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE expenses
       SET expense_date = ?, expense_type = ?, amount = ?, description = ?,
           receipt_image = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
@@ -130,7 +130,7 @@ router.put('/:id', authenticateToken, (req, res) => {
       req.params.id
     );
 
-    const expense = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+    const expense = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
     res.json({ success: true, data: { expense } });
   } catch (error) {
     console.error('Update expense error:', error);
@@ -141,14 +141,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/expenses/:id
 // @desc    Delete expense
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM expenses WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Expense not found' });
     }
 
-    db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM expenses WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Expense deleted successfully' });
   } catch (error) {
     console.error('Delete expense error:', error);

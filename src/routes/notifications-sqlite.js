@@ -10,8 +10,8 @@ const router = express.Router();
 
 // ── AUTO-GENERATE NOTIFICATIONS ─────────────────────────────────────────
 
-function generateAutomatedAlerts(userId) {
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+async function generateAutomatedAlerts(userId) {
+  const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!user) return;
 
   const isHelper = user.role === 'helper';
@@ -22,7 +22,7 @@ function generateAutomatedAlerts(userId) {
 
   if (!isHelper) {
     // 1. Inspection overdue alerts (no inspection in 14+ days)
-    const overdueHives = db.prepare(`
+    const overdueHives = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name,
         CAST(julianday('now') - julianday(COALESCE(h.last_inspection_date, h.created_at)) AS INTEGER) as days_since
       FROM hives h
@@ -32,14 +32,14 @@ function generateAutomatedAlerts(userId) {
     `).all();
 
     for (const hive of overdueHives) {
-      const exists = db.prepare(`
+      const exists = await db.prepare(`
         SELECT id FROM notifications
         WHERE user_id = ? AND notification_type = 'inspection_due' AND related_id = ?
           AND date(created_at) = date('now')
       `).get(userId, hive.id);
 
       if (!exists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
           VALUES (?, 'inspection_due', ?, ?, ?, 'hive', ?)
         `).run(
@@ -53,7 +53,7 @@ function generateAutomatedAlerts(userId) {
     }
 
     // 2. Queen age alerts (R16.2: green<1, yellow 1-1.5, red>2)
-    const queens = db.prepare(`
+    const queens = await db.prepare(`
       SELECT q.id, q.hive_id, q.introduction_date, h.name as hive_name,
         CAST(julianday('now') - julianday(q.introduction_date) AS REAL) / 365.0 as age_years
       FROM queens q
@@ -66,14 +66,14 @@ function generateAutomatedAlerts(userId) {
         const severity = queen.age_years >= 2 ? 'critical' : queen.age_years >= 1.5 ? 'warning' : 'info';
         const label = queen.age_years >= 2 ? '🔴 Replace Urgently' : queen.age_years >= 1.5 ? '🟡 Consider Replacing' : '🟢 Monitor';
 
-        const exists = db.prepare(`
+        const exists = await db.prepare(`
           SELECT id FROM notifications
           WHERE user_id = ? AND notification_type = 'queen_age' AND related_id = ?
             AND date(created_at) >= date('now', '-7 days')
         `).get(userId, queen.hive_id);
 
         if (!exists) {
-          db.prepare(`
+          await db.prepare(`
             INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
             VALUES (?, 'queen_age', ?, ?, ?, 'hive', ?)
           `).run(
@@ -87,7 +87,7 @@ function generateAutomatedAlerts(userId) {
     }
 
     // 3. Pest activity alerts (R16.1 — if helper flagged pest during inspection)
-    const pestHives = db.prepare(`
+    const pestHives = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id
@@ -95,14 +95,14 @@ function generateAutomatedAlerts(userId) {
     `).all();
 
     for (const hive of pestHives) {
-      const exists = db.prepare(`
+      const exists = await db.prepare(`
         SELECT id FROM notifications
         WHERE user_id = ? AND notification_type = 'pest_alert' AND related_id = ?
           AND date(created_at) >= date('now', '-3 days')
       `).get(userId, hive.id);
 
       if (!exists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
           VALUES (?, 'pest_alert', 'critical', ?, ?, 'hive', ?)
         `).run(
@@ -115,7 +115,7 @@ function generateAutomatedAlerts(userId) {
     }
 
     // 4. Feeding reminders (no feeding in 21+ days for active hives)
-    const unfedHives = db.prepare(`
+    const unfedHives = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name,
         (SELECT MAX(feeding_date) FROM feedings WHERE hive_id = h.id) as last_fed,
         CAST(julianday('now') - julianday(COALESCE(
@@ -132,14 +132,14 @@ function generateAutomatedAlerts(userId) {
     `).all();
 
     for (const hive of unfedHives) {
-      const exists = db.prepare(`
+      const exists = await db.prepare(`
         SELECT id FROM notifications
         WHERE user_id = ? AND notification_type = 'feeding_due' AND related_id = ?
           AND date(created_at) >= date('now', '-7 days')
       `).get(userId, hive.id);
 
       if (!exists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
           VALUES (?, 'feeding_due', 'warning', ?, ?, 'hive', ?)
         `).run(
@@ -152,7 +152,7 @@ function generateAutomatedAlerts(userId) {
     }
 
     // 5. Queenless hive alerts
-    const queenlessHives = db.prepare(`
+    const queenlessHives = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id
@@ -160,14 +160,14 @@ function generateAutomatedAlerts(userId) {
     `).all();
 
     for (const hive of queenlessHives) {
-      const exists = db.prepare(`
+      const exists = await db.prepare(`
         SELECT id FROM notifications
         WHERE user_id = ? AND notification_type = 'queen_age' AND related_id = ? AND title = 'Queenless Hive'
           AND date(created_at) >= date('now', '-7 days')
       `).get(userId, hive.id);
 
       if (!exists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
           VALUES (?, 'queen_age', 'critical', ?, ?, 'hive', ?)
         `).run(
@@ -184,7 +184,7 @@ function generateAutomatedAlerts(userId) {
 
   if (isHelper) {
     // Inspection overdue on assigned hives
-    const assignedOverdue = db.prepare(`
+    const assignedOverdue = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name,
         CAST(julianday('now') - julianday(COALESCE(h.last_inspection_date, h.created_at)) AS INTEGER) as days_since
       FROM hive_assignments ha
@@ -195,14 +195,14 @@ function generateAutomatedAlerts(userId) {
     `).all(userId);
 
     for (const hive of assignedOverdue) {
-      const exists = db.prepare(`
+      const exists = await db.prepare(`
         SELECT id FROM notifications
         WHERE user_id = ? AND notification_type = 'inspection_due' AND related_id = ?
           AND date(created_at) = date('now')
       `).get(userId, hive.id);
 
       if (!exists) {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
           VALUES (?, 'inspection_due', 'warning', ?, ?, 'hive', ?)
         `).run(
@@ -219,23 +219,23 @@ function generateAutomatedAlerts(userId) {
 // @route   GET /api/notifications
 // @desc    Get notifications for current user (auto-generates fresh alerts)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     // Auto-generate fresh alerts
-    generateAutomatedAlerts(req.userId);
+    await generateAutomatedAlerts(req.userId);
 
     const { unreadOnly } = req.query;
     let notifications;
 
     if (unreadOnly === 'true') {
-      notifications = db.prepare(`
+      notifications = await db.prepare(`
         SELECT * FROM notifications
         WHERE user_id = ? AND is_read = 0 AND is_dismissed = 0
         ORDER BY created_at DESC
         LIMIT 50
       `).all(req.userId);
     } else {
-      notifications = db.prepare(`
+      notifications = await db.prepare(`
         SELECT * FROM notifications
         WHERE user_id = ? AND is_dismissed = 0
         ORDER BY created_at DESC
@@ -243,10 +243,11 @@ router.get('/', authenticateToken, (req, res) => {
       `).all(req.userId);
     }
 
-    const unreadCount = db.prepare(`
+    const unreadRow = await db.prepare(`
       SELECT COUNT(*) as count FROM notifications
       WHERE user_id = ? AND is_read = 0 AND is_dismissed = 0
-    `).get(req.userId).count;
+    `).get(req.userId);
+    const unreadCount = unreadRow ? unreadRow.count : 0;
 
     res.json({ success: true, data: { notifications, unreadCount } });
   } catch (error) {
@@ -258,9 +259,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   PATCH /api/notifications/:id/read
 // @desc    Mark notification as read
 // @access  Private
-router.patch('/:id/read', authenticateToken, (req, res) => {
+router.patch('/:id/read', authenticateToken, async (req, res) => {
   try {
-    db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+    await db.prepare('UPDATE notifications SET is_read = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
     res.json({ success: true, message: 'Notification marked as read' });
   } catch (error) {
     console.error('Mark read error:', error);
@@ -271,9 +272,9 @@ router.patch('/:id/read', authenticateToken, (req, res) => {
 // @route   PATCH /api/notifications/read-all
 // @desc    Mark all notifications as read
 // @access  Private
-router.patch('/read-all', authenticateToken, (req, res) => {
+router.patch('/read-all', authenticateToken, async (req, res) => {
   try {
-    db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0').run(req.userId);
+    await db.prepare('UPDATE notifications SET is_read = 1 WHERE user_id = ? AND is_read = 0').run(req.userId);
     res.json({ success: true, message: 'All notifications marked as read' });
   } catch (error) {
     console.error('Mark all read error:', error);
@@ -284,9 +285,9 @@ router.patch('/read-all', authenticateToken, (req, res) => {
 // @route   PATCH /api/notifications/:id/dismiss
 // @desc    Dismiss notification
 // @access  Private
-router.patch('/:id/dismiss', authenticateToken, (req, res) => {
+router.patch('/:id/dismiss', authenticateToken, async (req, res) => {
   try {
-    db.prepare('UPDATE notifications SET is_dismissed = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
+    await db.prepare('UPDATE notifications SET is_dismissed = 1 WHERE id = ? AND user_id = ?').run(req.params.id, req.userId);
     res.json({ success: true, message: 'Notification dismissed' });
   } catch (error) {
     console.error('Dismiss error:', error);
@@ -297,9 +298,9 @@ router.patch('/:id/dismiss', authenticateToken, (req, res) => {
 // @route   DELETE /api/notifications/clear
 // @desc    Clear all dismissed/read notifications older than 30 days
 // @access  Private
-router.delete('/clear', authenticateToken, (req, res) => {
+router.delete('/clear', authenticateToken, async (req, res) => {
   try {
-    db.prepare(`
+    await db.prepare(`
       DELETE FROM notifications
       WHERE user_id = ? AND (is_dismissed = 1 OR (is_read = 1 AND created_at < datetime('now', '-30 days')))
     `).run(req.userId);

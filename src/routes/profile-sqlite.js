@@ -12,9 +12,9 @@ const router = express.Router();
 // @route   GET /api/profile
 // @desc    Get current user profile
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     
     if (!user) {
       return res.status(404).json({
@@ -27,9 +27,12 @@ router.get('/', authenticateToken, (req, res) => {
     delete user.password;
 
     // Get user statistics
-    const totalApiaries = db.prepare('SELECT COUNT(*) as count FROM apiaries WHERE user_id = ?').get(req.userId).count;
-    const totalHives = db.prepare('SELECT COUNT(*) as count FROM hives WHERE user_id = ?').get(req.userId).count;
-    const totalHarvests = db.prepare('SELECT COUNT(*) as count FROM harvests WHERE user_id = ?').get(req.userId).count;
+    const apiaryRow = await db.prepare('SELECT COUNT(*) as count FROM apiaries WHERE user_id = ?').get(req.userId);
+    const totalApiaries = apiaryRow ? apiaryRow.count : 0;
+    const hiveRow = await db.prepare('SELECT COUNT(*) as count FROM hives WHERE user_id = ?').get(req.userId);
+    const totalHives = hiveRow ? hiveRow.count : 0;
+    const harvestRow = await db.prepare('SELECT COUNT(*) as count FROM harvests WHERE user_id = ?').get(req.userId);
+    const totalHarvests = harvestRow ? harvestRow.count : 0;
 
     res.json({
       success: true,
@@ -64,7 +67,7 @@ router.put('/', authenticateToken, async (req, res) => {
     } = req.body;
 
     // Get current user
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     
     if (!user) {
       return res.status(404).json({
@@ -74,7 +77,7 @@ router.put('/', authenticateToken, async (req, res) => {
     }
 
     // Update user profile
-    db.prepare(`
+    await db.prepare(`
       UPDATE users 
       SET name = ?, phone = ?, district = ?, years_experience = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
@@ -87,7 +90,7 @@ router.put('/', authenticateToken, async (req, res) => {
     );
 
     // Get updated user
-    const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const updatedUser = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     delete updatedUser.password;
 
     res.json({
@@ -119,7 +122,7 @@ router.put('/password', authenticateToken, async (req, res) => {
     }
 
     // Get user with password
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
     
     if (!user) {
       return res.status(404).json({
@@ -141,7 +144,7 @@ router.put('/password', authenticateToken, async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update password
-    db.prepare('UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    await db.prepare('UPDATE users SET password = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(hashedPassword, req.userId);
 
     res.json({

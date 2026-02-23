@@ -11,14 +11,14 @@ const router = express.Router();
 // @route   GET /api/components
 // @desc    Get hive components, optionally filtered by hiveId
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { hiveId, hive_id } = req.query;
     const filterHiveId = hiveId || hive_id;
 
     let components;
     if (filterHiveId) {
-      components = db.prepare(`
+      components = await db.prepare(`
         SELECT c.*, h.name as hive_name
         FROM hive_components c
         LEFT JOIN hives h ON c.hive_id = h.id
@@ -26,7 +26,7 @@ router.get('/', authenticateToken, (req, res) => {
         ORDER BY c.created_at DESC
       `).all(filterHiveId);
     } else {
-      components = db.prepare(`
+      components = await db.prepare(`
         SELECT c.*, h.name as hive_name
         FROM hive_components c
         LEFT JOIN hives h ON c.hive_id = h.id
@@ -44,9 +44,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   GET /api/components/:id
 // @desc    Get single component by ID
 // @access  Private
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const component = db.prepare(`
+    const component = await db.prepare(`
       SELECT c.*, h.name as hive_name
       FROM hive_components c
       LEFT JOIN hives h ON c.hive_id = h.id
@@ -67,7 +67,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 // @route   POST /api/components
 // @desc    Add component to hive
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     const hiveId = body.hiveId || body.hive_id;
@@ -85,17 +85,17 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Verify hive exists
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(hiveId);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO hive_components (hive_id, component_type, quantity, condition, installed_date, notes)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(hiveId, componentType, quantity, condition, installedDate, notes);
 
-    const component = db.prepare('SELECT * FROM hive_components WHERE id = ?').get(result.lastInsertRowid);
+    const component = await db.prepare('SELECT * FROM hive_components WHERE id = ?').get(result.lastInsertRowid);
 
     res.status(201).json({
       success: true,
@@ -111,9 +111,9 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/components/:id
 // @desc    Update component
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const existing = db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Component not found' });
     }
@@ -125,13 +125,13 @@ router.put('/:id', authenticateToken, (req, res) => {
     const installedDate = body.installedDate || body.installed_date || existing.installed_date;
     const notes = body.notes !== undefined ? body.notes : existing.notes;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE hive_components
       SET component_type = ?, quantity = ?, condition = ?, installed_date = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(componentType, quantity, condition, installedDate, notes, req.params.id);
 
-    const component = db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
+    const component = await db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
     res.json({ success: true, message: 'Component updated', data: { component } });
   } catch (error) {
     console.error('Update component error:', error);
@@ -142,14 +142,14 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/components/:id
 // @desc    Remove component from hive
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
-    const component = db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
+    const component = await db.prepare('SELECT * FROM hive_components WHERE id = ?').get(req.params.id);
     if (!component) {
       return res.status(404).json({ success: false, message: 'Component not found' });
     }
 
-    db.prepare('DELETE FROM hive_components WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM hive_components WHERE id = ?').run(req.params.id);
     res.json({ success: true, message: 'Component removed successfully' });
   } catch (error) {
     console.error('Delete component error:', error);

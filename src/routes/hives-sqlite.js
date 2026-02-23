@@ -11,9 +11,9 @@ const router = express.Router();
 // @route   GET /api/hives
 // @desc    Get all hives (admin view)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const hives = db.prepare(`
+    const hives = await db.prepare(`
       SELECT h.*, a.name as apiary_name, a.district as apiary_district
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id
@@ -36,9 +36,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   GET /api/hives/:id
 // @desc    Get single hive by ID (admin view)
 // @access  Private
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const hive = db.prepare(`
+    const hive = await db.prepare(`
       SELECT h.*, a.name as apiary_name, a.district as apiary_district
       FROM hives h
       LEFT JOIN apiaries a ON h.apiary_id = a.id
@@ -68,7 +68,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 // @route   POST /api/hives
 // @desc    Create new hive
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     // Accept both camelCase and snake_case payloads from Postman
@@ -104,7 +104,7 @@ router.post('/', authenticateToken, (req, res) => {
 
     // If apiary_id is provided, verify it belongs to user
     if (normalizedApiaryId) {
-      const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
+      const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
       if (!apiary) {
         return res.status(404).json({
           success: false,
@@ -114,7 +114,7 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Insert new hive
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO hives (
         user_id, apiary_id, name, hive_type, location_type, status,
         queen_present, queen_age, queen_age_risk, colony_strength, last_inspection_date,
@@ -137,7 +137,7 @@ router.post('/', authenticateToken, (req, res) => {
     );
 
     // Get the created hive
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(result.lastInsertRowid);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(result.lastInsertRowid);
 
     res.status(201).json({
       success: true,
@@ -157,7 +157,7 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/hives/:id
 // @desc    Update hive
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const {
       apiaryId,
@@ -175,7 +175,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     } = req.body;
 
     // Check if hive exists and belongs to user
-    const existingHive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const existingHive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     
     if (!existingHive) {
       return res.status(404).json({
@@ -205,7 +205,7 @@ router.put('/:id', authenticateToken, (req, res) => {
 
     // If apiary_id is being updated, verify it belongs to user
     if (normalizedApiaryId && normalizedApiaryId !== existingHive.apiary_id) {
-      const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
+      const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(normalizedApiaryId);
       if (!apiary) {
         return res.status(404).json({
           success: false,
@@ -215,7 +215,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     }
 
     // Update hive
-    db.prepare(`
+    await db.prepare(`
       UPDATE hives 
       SET apiary_id = ?, name = ?, hive_type = ?, location_type = ?, status = ?,
           queen_present = ?, queen_age = ?, queen_age_risk = ?, colony_strength = ?,
@@ -239,7 +239,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     );
 
     // Get updated hive
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
 
     res.json({
       success: true,
@@ -258,10 +258,10 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/hives/:id
 // @desc    Delete hive
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     // Check if hive exists and belongs to user
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     
     if (!hive) {
       return res.status(404).json({
@@ -271,7 +271,7 @@ router.delete('/:id', authenticateToken, (req, res) => {
     }
 
     // Delete hive
-    db.prepare('DELETE FROM hives WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM hives WHERE id = ?').run(req.params.id);
 
     res.json({
       success: true,
@@ -289,9 +289,9 @@ router.delete('/:id', authenticateToken, (req, res) => {
 // @route   PATCH /api/hives/:id/move
 // @desc    Move hive to a different apiary
 // @access  Private
-router.patch('/:id/move', authenticateToken, (req, res) => {
+router.patch('/:id/move', authenticateToken, async (req, res) => {
   try {
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
@@ -304,7 +304,7 @@ router.patch('/:id/move', authenticateToken, (req, res) => {
     }
 
     // Verify target apiary exists
-    const targetApiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(targetApiaryId);
+    const targetApiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(targetApiaryId);
     if (!targetApiary) {
       return res.status(404).json({ success: false, message: 'Target apiary not found' });
     }
@@ -315,20 +315,20 @@ router.patch('/:id/move', authenticateToken, (req, res) => {
     }
 
     const previousApiaryId = hive.apiary_id;
-    db.prepare('UPDATE hives SET apiary_id = ?, location_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    await db.prepare('UPDATE hives SET apiary_id = ?, location_type = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(targetApiaryId, 'apiary-linked', req.params.id);
 
     // Log in apiary_history if table exists
     try {
-      db.prepare(`INSERT INTO apiary_history (apiary_id, action, details) VALUES (?, 'hive_moved_in', ?)`)
+      await db.prepare(`INSERT INTO apiary_history (apiary_id, action, details) VALUES (?, 'hive_moved_in', ?)`)
         .run(targetApiaryId, `Hive "${hive.name}" moved in from apiary ${previousApiaryId || 'standalone'}`);
       if (previousApiaryId) {
-        db.prepare(`INSERT INTO apiary_history (apiary_id, action, details) VALUES (?, 'hive_moved_out', ?)`)
+        await db.prepare(`INSERT INTO apiary_history (apiary_id, action, details) VALUES (?, 'hive_moved_out', ?)`)
           .run(previousApiaryId, `Hive "${hive.name}" moved to apiary ${targetApiaryId}`);
       }
     } catch (_) { /* apiary_history table may not exist yet */ }
 
-    const updated = db.prepare(`
+    const updated = await db.prepare(`
       SELECT h.*, a.name as apiary_name, a.district as apiary_district
       FROM hives h LEFT JOIN apiaries a ON h.apiary_id = a.id
       WHERE h.id = ?
@@ -348,17 +348,17 @@ router.patch('/:id/move', authenticateToken, (req, res) => {
 // @route   PATCH /api/hives/:id/star
 // @desc    Toggle hive starred status
 // @access  Private
-router.patch('/:id/star', authenticateToken, (req, res) => {
+router.patch('/:id/star', authenticateToken, async (req, res) => {
   try {
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
 
     const newStarred = hive.is_starred ? 0 : 1;
-    db.prepare('UPDATE hives SET is_starred = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStarred, req.params.id);
+    await db.prepare('UPDATE hives SET is_starred = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?').run(newStarred, req.params.id);
 
-    const updated = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     res.json({
       success: true,
       message: newStarred ? 'Hive starred' : 'Hive unstarred',
@@ -373,9 +373,9 @@ router.patch('/:id/star', authenticateToken, (req, res) => {
 // @route   PATCH /api/hives/:id/flag
 // @desc    Toggle hive flagged status
 // @access  Private
-router.patch('/:id/flag', authenticateToken, (req, res) => {
+router.patch('/:id/flag', authenticateToken, async (req, res) => {
   try {
-    const hive = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     if (!hive) {
       return res.status(404).json({ success: false, message: 'Hive not found' });
     }
@@ -384,10 +384,10 @@ router.patch('/:id/flag', authenticateToken, (req, res) => {
     const flagReason = body.flagReason || body.flag_reason || null;
 
     const newFlagged = hive.is_flagged ? 0 : 1;
-    db.prepare('UPDATE hives SET is_flagged = ?, flag_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+    await db.prepare('UPDATE hives SET is_flagged = ?, flag_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
       .run(newFlagged, newFlagged ? flagReason : null, req.params.id);
 
-    const updated = db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
     res.json({
       success: true,
       message: newFlagged ? 'Hive flagged' : 'Hive unflagged',

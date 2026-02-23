@@ -11,14 +11,14 @@ const router = express.Router();
 // @route   GET /api/transfers
 // @desc    Get all colony transfers for the user
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
     const { hiveId, hive_id } = req.query;
     const filterHiveId = hiveId || hive_id;
 
     let transfers;
     if (filterHiveId) {
-      transfers = db.prepare(`
+      transfers = await db.prepare(`
         SELECT ct.*, 
           sh.name as source_hive_name, sh.hive_type as source_hive_type,
           th.name as target_hive_name, th.hive_type as target_hive_type
@@ -29,7 +29,7 @@ router.get('/', authenticateToken, (req, res) => {
         ORDER BY ct.transfer_date DESC
       `).all(filterHiveId, filterHiveId);
     } else {
-      transfers = db.prepare(`
+      transfers = await db.prepare(`
         SELECT ct.*, 
           sh.name as source_hive_name, sh.hive_type as source_hive_type,
           th.name as target_hive_name, th.hive_type as target_hive_type
@@ -51,7 +51,7 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   POST /api/transfers
 // @desc    Create a colony transfer (pot-to-box, split, merge)
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     const sourceHiveId = body.sourceHiveId || body.source_hive_id;
@@ -71,13 +71,13 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Validate source hive
-    const sourceHive = db.prepare('SELECT * FROM hives WHERE id = ?').get(sourceHiveId);
+    const sourceHive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(sourceHiveId);
     if (!sourceHive) {
       return res.status(404).json({ success: false, message: 'Source hive not found' });
     }
 
     // Validate target hive
-    const targetHive = db.prepare('SELECT * FROM hives WHERE id = ?').get(targetHiveId);
+    const targetHive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(targetHiveId);
     if (!targetHive) {
       return res.status(404).json({ success: false, message: 'Target hive not found' });
     }
@@ -93,36 +93,36 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Create transfer record
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO colony_transfers (user_id, source_hive_id, target_hive_id, transfer_date, transfer_type, queen_moved, brood_frames_moved, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `).run(req.userId, sourceHiveId, targetHiveId, transferDate, transferType, queenMoved, broodFramesMoved, notes);
 
     // Update source hive — mark as inactive/absconded after colony transfer
     if (transferType === 'pot_to_box' || transferType === 'merge') {
-      db.prepare(`
+      await db.prepare(`
         UPDATE hives SET status = 'inactive', queen_present = 0, colony_strength = 'weak', updated_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(sourceHiveId);
     } else if (transferType === 'split') {
-      db.prepare(`
+      await db.prepare(`
         UPDATE hives SET colony_strength = 'weak', updated_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(sourceHiveId);
     }
 
     // Update target hive — receives colony
     if (queenMoved) {
-      db.prepare(`
+      await db.prepare(`
         UPDATE hives SET queen_present = 1, status = 'active', updated_at = CURRENT_TIMESTAMP WHERE id = ?
       `).run(targetHiveId);
 
       // If queen exists in queens table, move her
-      const activeQueen = db.prepare("SELECT * FROM queens WHERE hive_id = ? AND status = 'active'").get(sourceHiveId);
+      const activeQueen = await db.prepare("SELECT * FROM queens WHERE hive_id = ? AND status = 'active'").get(sourceHiveId);
       if (activeQueen) {
-        db.prepare("UPDATE queens SET hive_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(targetHiveId, activeQueen.id);
+        await db.prepare("UPDATE queens SET hive_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(targetHiveId, activeQueen.id);
       }
     }
 
-    const transfer = db.prepare(`
+    const transfer = await db.prepare(`
       SELECT ct.*, 
         sh.name as source_hive_name, sh.hive_type as source_hive_type,
         th.name as target_hive_name, th.hive_type as target_hive_type

@@ -9,9 +9,9 @@ const db = require('../config/database.cjs');
 const router = express.Router();
 
 // Helper: log apiary history
-function logApiaryHistory(apiaryId, userId, action, details) {
+async function logApiaryHistory(apiaryId, userId, action, details) {
   try {
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO apiary_history (apiary_id, user_id, action, details)
       VALUES (?, ?, ?, ?)
     `).run(apiaryId, userId, action, typeof details === 'object' ? JSON.stringify(details) : details);
@@ -23,9 +23,9 @@ function logApiaryHistory(apiaryId, userId, action, details) {
 // @route   GET /api/apiaries
 // @desc    Get all apiaries (admin view)
 // @access  Private
-router.get('/', authenticateToken, (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const apiaries = db.prepare(`
+    const apiaries = await db.prepare(`
       SELECT a.*, 
              (SELECT COUNT(*) FROM hives WHERE apiary_id = a.id) as hive_count 
       FROM apiaries a 
@@ -48,9 +48,9 @@ router.get('/', authenticateToken, (req, res) => {
 // @route   GET /api/apiaries/:id
 // @desc    Get single apiary by ID (admin view)
 // @access  Private
-router.get('/:id', authenticateToken, (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
     
     if (!apiary) {
       return res.status(404).json({
@@ -75,7 +75,7 @@ router.get('/:id', authenticateToken, (req, res) => {
 // @route   POST /api/apiaries
 // @desc    Create new apiary
 // @access  Private
-router.post('/', authenticateToken, (req, res) => {
+router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     // Accept both camelCase and snake_case payloads from Postman
@@ -100,7 +100,7 @@ router.post('/', authenticateToken, (req, res) => {
     }
 
     // Insert new apiary
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO apiaries (
         user_id, name, district, area, established_date, status, 
         apiary_type, terrain, forage_primary, blooming_window,
@@ -113,7 +113,7 @@ router.post('/', authenticateToken, (req, res) => {
     );
 
     // Get the created apiary
-    const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(result.lastInsertRowid);
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(result.lastInsertRowid);
 
     // Log history
     logApiaryHistory(apiary.id, req.userId, 'created', `Apiary "${name}" created in ${district}`);
@@ -136,7 +136,7 @@ router.post('/', authenticateToken, (req, res) => {
 // @route   PUT /api/apiaries/:id
 // @desc    Update apiary
 // @access  Private
-router.put('/:id', authenticateToken, (req, res) => {
+router.put('/:id', authenticateToken, async (req, res) => {
   try {
     const {
       name,
@@ -153,7 +153,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     } = req.body;
 
     // Check if apiary exists and belongs to user
-    const existingApiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    const existingApiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
     
     if (!existingApiary) {
       return res.status(404).json({
@@ -165,7 +165,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     // R4.1: Block setting apiary to inactive if it has active hives
     const newStatus = status || existingApiary.status;
     if (newStatus === 'inactive' && existingApiary.status !== 'inactive') {
-      const activeHiveCount = db.prepare(
+      const activeHiveCount = await db.prepare(
         "SELECT COUNT(*) as count FROM hives WHERE apiary_id = ? AND status = 'active'"
       ).get(req.params.id);
       if (activeHiveCount && activeHiveCount.count > 0) {
@@ -177,7 +177,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     }
 
     // Update apiary
-    db.prepare(`
+    await db.prepare(`
       UPDATE apiaries 
       SET name = ?, district = ?, area = ?, established_date = ?, status = ?,
           apiary_type = ?, terrain = ?, forage_primary = ?, blooming_window = ?,
@@ -200,7 +200,7 @@ router.put('/:id', authenticateToken, (req, res) => {
     );
 
     // Get updated apiary
-    const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
 
     // Log history — build change summary
     const changes = [];
@@ -228,10 +228,10 @@ router.put('/:id', authenticateToken, (req, res) => {
 // @route   DELETE /api/apiaries/:id
 // @desc    Delete apiary
 // @access  Private
-router.delete('/:id', authenticateToken, (req, res) => {
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     // Check if apiary exists and belongs to user
-    const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
     
     if (!apiary) {
       return res.status(404).json({
@@ -244,7 +244,7 @@ router.delete('/:id', authenticateToken, (req, res) => {
     logApiaryHistory(Number(req.params.id), req.userId, 'deleted', `Apiary "${apiary.name}" deleted`);
 
     // Delete apiary (this will cascade delete related hives due to foreign key)
-    db.prepare('DELETE FROM apiaries WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM apiaries WHERE id = ?').run(req.params.id);
 
     res.json({
       success: true,
@@ -262,14 +262,14 @@ router.delete('/:id', authenticateToken, (req, res) => {
 // @route   GET /api/apiaries/:id/history
 // @desc    Get history log for an apiary
 // @access  Private
-router.get('/:id/history', authenticateToken, (req, res) => {
+router.get('/:id/history', authenticateToken, async (req, res) => {
   try {
-    const apiary = db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
     if (!apiary) {
       return res.status(404).json({ success: false, message: 'Apiary not found' });
     }
 
-    const history = db.prepare(`
+    const history = await db.prepare(`
       SELECT ah.*, u.name as user_name
       FROM apiary_history ah
       LEFT JOIN users u ON ah.user_id = u.id
