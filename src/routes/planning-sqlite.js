@@ -173,8 +173,9 @@ router.post('/analyze', authenticateToken, async (req, res) => {
     const weatherUrl =
       `https://api.open-meteo.com/v1/forecast` +
       `?latitude=${latitude}&longitude=${longitude}` +
-      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode,windspeed_10m_max` +
-      `&hourly=temperature_2m,precipitation,relativehumidity_2m,windspeed_10m,weathercode` +
+      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,precipitation_hours,relative_humidity_2m_max,relative_humidity_2m_min,sunrise,sunset` +
+      `&hourly=temperature_2m,precipitation,relative_humidity_2m,wind_speed_10m,weather_code` +
+      `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation` +
       `&forecast_days=14` +
       `&timezone=Asia%2FColombo`;
 
@@ -231,9 +232,13 @@ router.post('/analyze', authenticateToken, async (req, res) => {
         const maxTemp = d.temperature_2m_max[i];
         const minTemp = d.temperature_2m_min[i];
         const precipMm = d.precipitation_sum[i] || 0;
-        const wcode = d.weathercode[i];
+        const wcode = d.weather_code[i];
         const tempRisk = getTempRisk(maxTemp);
         const rainStatus = getRainStatus(precipMm);
+        const humidityMax = d.relative_humidity_2m_max ? d.relative_humidity_2m_max[i] : null;
+        const humidityMin = d.relative_humidity_2m_min ? d.relative_humidity_2m_min[i] : null;
+        const humidityAvg = humidityMax && humidityMin ? Math.round((humidityMax + humidityMin) / 2) : null;
+        const precipHours = d.precipitation_hours ? d.precipitation_hours[i] : null;
 
         // Weather code: 0=clear, 1-3=cloudy, 51-67/80-82=rain, 71-77=snow, 95+=storm
         const icon =
@@ -241,6 +246,9 @@ router.post('/analyze', authenticateToken, async (req, res) => {
           : wcode <= 3 ? 'cloud'
           : wcode >= 51 ? 'rain'
           : 'cloud';
+
+        // Rain risk: continuous rain >= 2 hours is a stop threshold
+        const rainRisk = precipHours !== null && precipHours >= 2 ? 'stop' : (precipMm > 0 ? 'caution' : 'clear');
 
         const date = new Date(dateStr);
         return {
@@ -252,38 +260,64 @@ router.post('/analyze', authenticateToken, async (req, res) => {
           maxTemp: Math.round(maxTemp),
           minTemp: Math.round(minTemp),
           precipMm: Math.round(precipMm * 10) / 10,
+          precipHours: precipHours !== null ? Math.round(precipHours * 10) / 10 : null,
+          humidityMax,
+          humidityMin,
+          humidityAvg,
+          humidityStatus: humidityAvg ? getHumidityStatus(humidityAvg) : null,
           tempRisk,
           rainStatus,
-          windspeed: d.windspeed_10m_max ? Math.round(d.windspeed_10m_max[i]) : null,
+          rainRisk,
+          windspeed: d.wind_speed_10m_max ? Math.round(d.wind_speed_10m_max[i]) : null,
+          sunrise: d.sunrise ? d.sunrise[i] : null,
+          sunset: d.sunset ? d.sunset[i] : null,
         };
       });
     }
 
-    // ── 5. Process hourly weather for today ───────────────────────────────
+    // ── 5. Process hourly weather for today + tomorrow ──────────────────
     let processedHourly = [];
     if (weatherData && weatherData.hourly) {
       const h = weatherData.hourly;
-      // Get today's date string
+      // Get today's and tomorrow's date strings
       const todayStr = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
       h.time.forEach((timeStr, i) => {
-        if (timeStr.startsWith(todayStr)) {
+        if (timeStr.startsWith(todayStr) || timeStr.startsWith(tomorrowStr)) {
           const hour = parseInt(timeStr.split('T')[1].split(':')[0], 10);
-          // Only show daytime hours 5am-9pm
+          // Show every 2 hours during daytime 5am-9pm
           if (hour >= 5 && hour <= 21 && hour % 2 === 0) {
-            const rh = h.relativehumidity_2m[i];
+            const rh = h.relative_humidity_2m[i];
             processedHourly.push({
+              date: timeStr.split('T')[0],
               time: timeStr.split('T')[1].substring(0, 5),
               temp: Math.round(h.temperature_2m[i]),
               precip: h.precipitation[i] || 0,
               humidity: rh,
-              wind: Math.round(h.windspeed_10m[i]),
-              wcode: h.weathercode[i],
+              wind: Math.round(h.wind_speed_10m[i]),
+              wcode: h.weather_code[i],
               tempRisk: getTempRisk(h.temperature_2m[i]),
               humidityStatus: getHumidityStatus(rh),
             });
           }
         }
       });
+    }
+
+    // ── 5b. Current weather snapshot ─────────────────────────────────────
+    let currentWeather = null;
+    if (weatherData && weatherData.current) {
+      const c = weatherData.current;
+      currentWeather = {
+        temp: Math.round(c.temperature_2m),
+        humidity: c.relative_humidity_2m,
+        wcode: c.weather_code,
+        wind: Math.round(c.wind_speed_10m),
+        precip: c.precipitation || 0,
+        tempRisk: getTempRisk(c.temperature_2m),
+        humidityStatus: getHumidityStatus(c.relative_humidity_2m),
+      };
     }
 
     // ── 6. Forage data for this location ──────────────────────────────────
@@ -316,6 +350,7 @@ router.post('/analyze', authenticateToken, async (req, res) => {
         },
         suitability: { score, label: suitabilityLabel, color: suitabilityColor },
         weather: {
+          current: currentWeather,
           days: processedDays,
           hourly: processedHourly,
           source: weatherData ? 'Open-Meteo' : 'unavailable',

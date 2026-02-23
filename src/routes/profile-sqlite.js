@@ -59,12 +59,20 @@ router.get('/', authenticateToken, async (req, res) => {
 // @access  Private
 router.put('/', authenticateToken, async (req, res) => {
   try {
-    const {
-      name,
-      phone,
-      district,
-      yearsExperience
-    } = req.body;
+    const body = req.body;
+    const name = body.name;
+    const phone = body.phone || body.phoneNumber;
+    const district = body.district;
+    const yearsExperience = body.yearsExperience || body.years_experience;
+    const nicNumber = body.nic_number || body.nicNumber;
+    const preferredLanguage = body.preferred_language || body.preferredLanguage;
+    const ageGroup = body.age_group || body.ageGroup;
+    const knownBeeAllergy = body.known_bee_allergy || body.knownBeeAllergy;
+    const bloodGroup = body.blood_group || body.bloodGroup;
+    const beekeepingNature = body.beekeeping_nature || body.beekeepingNature;
+    const businessRegNo = body.business_reg_no || body.businessRegNo;
+    const primaryBeeSpecies = body.primary_bee_species || body.primaryBeeSpecies;
+    const nvqLevel = body.nvq_level || body.nvqLevel;
 
     // Get current user
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.userId);
@@ -76,16 +84,29 @@ router.put('/', authenticateToken, async (req, res) => {
       });
     }
 
-    // Update user profile
+    // Update user profile with all UC1 fields
     await db.prepare(`
       UPDATE users 
-      SET name = ?, phone = ?, district = ?, years_experience = ?, updated_at = CURRENT_TIMESTAMP
+      SET name = ?, phone = ?, district = ?, years_experience = ?,
+          nic_number = ?, preferred_language = ?, age_group = ?,
+          known_bee_allergy = ?, blood_group = ?, beekeeping_nature = ?,
+          business_reg_no = ?, primary_bee_species = ?, nvq_level = ?,
+          updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `).run(
       name || user.name,
       phone !== undefined ? phone : user.phone,
       district || user.district,
       yearsExperience !== undefined ? yearsExperience : user.years_experience,
+      nicNumber !== undefined ? nicNumber : user.nic_number,
+      preferredLanguage || user.preferred_language || 'en',
+      ageGroup !== undefined ? ageGroup : user.age_group,
+      knownBeeAllergy !== undefined ? knownBeeAllergy : user.known_bee_allergy,
+      bloodGroup !== undefined ? bloodGroup : user.blood_group,
+      beekeepingNature !== undefined ? beekeepingNature : user.beekeeping_nature,
+      businessRegNo !== undefined ? businessRegNo : user.business_reg_no,
+      primaryBeeSpecies !== undefined ? primaryBeeSpecies : user.primary_bee_species,
+      nvqLevel !== undefined ? nvqLevel : user.nvq_level,
       req.userId
     );
 

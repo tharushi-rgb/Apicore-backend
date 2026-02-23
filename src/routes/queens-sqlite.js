@@ -23,14 +23,14 @@ router.get('/', authenticateToken, async (req, res) => {
         FROM queens q
         LEFT JOIN hives h ON q.hive_id = h.id
         WHERE q.hive_id = ?
-        ORDER BY q.introduced_date DESC
+        ORDER BY q.introduction_date DESC
       `).all(filterHiveId);
     } else {
       queens = await db.prepare(`
         SELECT q.*, h.name as hive_name
         FROM queens q
         LEFT JOIN hives h ON q.hive_id = h.id
-        ORDER BY q.introduced_date DESC
+        ORDER BY q.introduction_date DESC
       `).all();
     }
 
@@ -71,11 +71,11 @@ router.post('/', authenticateToken, async (req, res) => {
   try {
     const body = req.body || {};
     const hiveId = body.hiveId || body.hive_id;
-    const breed = body.breed || null;
+    const species = body.species || body.breed || null;
     const source = body.source || 'natural';
-    const introducedDate = body.introducedDate || body.introduced_date || null;
+    const introductionDate = body.introduction_date || body.introducedDate || body.introduced_date || null;
     const status = body.status || 'active';
-    const markedColor = body.markedColor || body.marked_color || null;
+    const markingColor = body.marking_color || body.markedColor || body.marked_color || null;
     const notes = body.notes || null;
 
     if (!hiveId) {
@@ -100,9 +100,9 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     const result = await db.prepare(`
-      INSERT INTO queens (hive_id, breed, source, introduced_date, status, marked_color, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(hiveId, breed, source, introducedDate, status, markedColor, notes);
+      INSERT INTO queens (user_id, hive_id, species, source, introduction_date, status, marking_color, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(req.userId, hiveId, species, source, introductionDate, status, markingColor, notes);
 
     const queen = await db.prepare('SELECT * FROM queens WHERE id = ?').get(result.lastInsertRowid);
 
@@ -128,11 +128,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
 
     const body = req.body || {};
-    const breed = body.breed !== undefined ? body.breed : existing.breed;
+    const species = body.species !== undefined ? body.species : (body.breed !== undefined ? body.breed : existing.species);
     const source = body.source || existing.source;
-    const introducedDate = body.introducedDate || body.introduced_date || existing.introduced_date;
+    const introductionDate = body.introduction_date || body.introducedDate || body.introduced_date || existing.introduction_date;
     const status = body.status || existing.status;
-    const markedColor = body.markedColor || body.marked_color || existing.marked_color;
+    const markingColor = body.marking_color !== undefined ? body.marking_color : (body.markedColor !== undefined ? body.markedColor : (body.marked_color !== undefined ? body.marked_color : existing.marking_color));
     const notes = body.notes !== undefined ? body.notes : existing.notes;
 
     // If changing to active, supersede other active queens in the same hive
@@ -153,9 +153,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     await db.prepare(`
       UPDATE queens
-      SET breed = ?, source = ?, introduced_date = ?, status = ?, marked_color = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
+      SET species = ?, source = ?, introduction_date = ?, status = ?, marking_color = ?, notes = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
-    `).run(breed, source, introducedDate, status, markedColor, notes, req.params.id);
+    `).run(species, source, introductionDate, status, markingColor, notes, req.params.id);
 
     const queen = await db.prepare('SELECT * FROM queens WHERE id = ?').get(req.params.id);
     res.json({ success: true, message: 'Queen updated', data: { queen } });

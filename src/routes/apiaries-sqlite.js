@@ -88,8 +88,8 @@ router.post('/', authenticateToken, async (req, res) => {
     const terrain = body.terrain || null;
     const foragePrimary = body.foragePrimary || body.forage_primary || null;
     const bloomingWindow = body.bloomingWindow || body.blooming_window || null;
-    const gpsLatitude = body.gpsLatitude || body.gps_latitude || null;
-    const gpsLongitude = body.gpsLongitude || body.gps_longitude || null;
+    const gpsLatitude = body.gpsLatitude || body.gps_latitude || body.latitude || null;
+    const gpsLongitude = body.gpsLongitude || body.gps_longitude || body.longitude || null;
 
     // Validate required fields
     if (!name || !district) {
@@ -138,19 +138,18 @@ router.post('/', authenticateToken, async (req, res) => {
 // @access  Private
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
-    const {
-      name,
-      district,
-      area,
-      establishedDate,
-      status,
-      apiaryType,
-      terrain,
-      foragePrimary,
-      bloomingWindow,
-      gpsLatitude,
-      gpsLongitude
-    } = req.body;
+    const body = req.body;
+    const name = body.name;
+    const district = body.district;
+    const area = body.area;
+    const establishedDate = body.establishedDate || body.established_date;
+    const status = body.status;
+    const apiaryType = body.apiaryType || body.apiary_type;
+    const terrain = body.terrain;
+    const foragePrimary = body.foragePrimary || body.forage_primary;
+    const bloomingWindow = body.bloomingWindow || body.blooming_window;
+    const gpsLatitude = body.gpsLatitude || body.gps_latitude || body.latitude;
+    const gpsLongitude = body.gpsLongitude || body.gps_longitude || body.longitude;
 
     // Check if apiary exists and belongs to user
     const existingApiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
@@ -258,6 +257,98 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     });
   }
 });
+
+// @route   GET /api/apiaries/:id/weather
+// @desc    Get current weather + 5-day forecast for apiary location (R4.4)
+// @access  Private
+router.get('/:id/weather', authenticateToken, async (req, res) => {
+  try {
+    const apiary = await db.prepare('SELECT * FROM apiaries WHERE id = ?').get(req.params.id);
+    if (!apiary) {
+      return res.status(404).json({ success: false, message: 'Apiary not found' });
+    }
+
+    if (!apiary.gps_latitude || !apiary.gps_longitude) {
+      return res.status(400).json({ success: false, message: 'Apiary has no GPS coordinates for weather lookup' });
+    }
+
+    const lat = apiary.gps_latitude;
+    const lng = apiary.gps_longitude;
+
+    const weatherUrl =
+      `https://api.open-meteo.com/v1/forecast` +
+      `?latitude=${lat}&longitude=${lng}` +
+      `&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,precipitation` +
+      `&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,precipitation_hours,relative_humidity_2m_max,relative_humidity_2m_min,sunrise,sunset` +
+      `&forecast_days=5` +
+      `&timezone=Asia%2FColombo`;
+
+    const weatherRes = await fetch(weatherUrl);
+    if (!weatherRes.ok) {
+      return res.status(502).json({ success: false, message: 'Weather service unavailable' });
+    }
+    const weatherData = await weatherRes.json();
+
+    // Process current weather
+    const c = weatherData.current;
+    const current = {
+      temp: Math.round(c.temperature_2m),
+      humidity: c.relative_humidity_2m,
+      wcode: c.weather_code,
+      wind: Math.round(c.wind_speed_10m),
+      precip: c.precipitation || 0,
+      description: getWeatherDescription(c.weather_code),
+    };
+
+    // Process 5-day forecast
+    const d = weatherData.daily;
+    const forecast = d.time.map((dateStr, i) => {
+      const date = new Date(dateStr);
+      return {
+        date: dateStr,
+        dayName: date.toLocaleDateString('en-US', { weekday: 'short' }),
+        dayNum: date.getDate(),
+        month: date.toLocaleDateString('en-US', { month: 'short' }),
+        maxTemp: Math.round(d.temperature_2m_max[i]),
+        minTemp: Math.round(d.temperature_2m_min[i]),
+        precipMm: Math.round((d.precipitation_sum[i] || 0) * 10) / 10,
+        wcode: d.weather_code[i],
+        description: getWeatherDescription(d.weather_code[i]),
+        windspeed: d.wind_speed_10m_max ? Math.round(d.wind_speed_10m_max[i]) : null,
+        humidityMax: d.relative_humidity_2m_max ? d.relative_humidity_2m_max[i] : null,
+        humidityMin: d.relative_humidity_2m_min ? d.relative_humidity_2m_min[i] : null,
+        sunrise: d.sunrise ? d.sunrise[i] : null,
+        sunset: d.sunset ? d.sunset[i] : null,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: {
+        location: { lat, lng, district: apiary.district },
+        current,
+        forecast,
+        source: 'Open-Meteo',
+      },
+    });
+  } catch (error) {
+    console.error('Get apiary weather error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// Helper: WMO weather code to text description
+function getWeatherDescription(code) {
+  const descriptions = {
+    0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+    45: 'Fog', 48: 'Rime fog',
+    51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+    61: 'Slight rain', 63: 'Moderate rain', 65: 'Heavy rain',
+    80: 'Light showers', 81: 'Moderate showers', 82: 'Violent showers',
+    95: 'Thunderstorm', 96: 'Thunderstorm + hail', 99: 'Thunderstorm + heavy hail',
+  };
+  return descriptions[code] || 'Unknown';
+}
 
 // @route   GET /api/apiaries/:id/history
 // @desc    Get history log for an apiary

@@ -17,15 +17,23 @@ const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-producti
 // @access  Public
 router.post('/register', async (req, res) => {
   try {
-    const { 
-      name,  // Changed from fullName to match schema
-      email, 
-      password, 
-      phone,  // Changed from phoneNumber
-      district,
-      role = 'beekeeper',
-      yearsExperience = 0  // Changed from years_experience
-    } = req.body;
+    const body = req.body;
+    const name = body.name || body.fullName;
+    const email = body.email;
+    const password = body.password;
+    const phone = body.phone || body.phoneNumber || null;
+    const nicNumber = body.nic_number || body.nicNumber || null;
+    const district = body.district || null;
+    const preferredLanguage = body.preferred_language || body.preferredLanguage || 'en';
+    const ageGroup = body.age_group || body.ageGroup || null;
+    const knownBeeAllergy = body.known_bee_allergy || body.knownBeeAllergy || 'no';
+    const bloodGroup = body.blood_group || body.bloodGroup || null;
+    const beekeepingNature = body.beekeeping_nature || body.beekeepingNature || null;
+    const businessRegNo = body.business_reg_no || body.businessRegNo || null;
+    const primaryBeeSpecies = body.primary_bee_species || body.primaryBeeSpecies || null;
+    const nvqLevel = body.nvq_level || body.nvqLevel || null;
+    const role = body.role || 'beekeeper';
+    const yearsExperience = body.yearsExperience || body.years_experience || 0;
 
     // Validate required fields
     if (!name || !email || !password) {
@@ -48,11 +56,15 @@ router.post('/register', async (req, res) => {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Insert new user
+    // Insert new user with full UC1 fields
     const result = await db.prepare(`
-      INSERT INTO users (name, email, password, phone, district, role, years_experience)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(name, email, hashedPassword, phone, district, role, yearsExperience);
+      INSERT INTO users (name, email, password, phone, nic_number, district, preferred_language,
+        age_group, known_bee_allergy, blood_group, beekeeping_nature, business_reg_no,
+        primary_bee_species, nvq_level, role, years_experience)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(name, email, hashedPassword, phone, nicNumber, district, preferredLanguage,
+      ageGroup, knownBeeAllergy, bloodGroup, beekeepingNature, businessRegNo,
+      primaryBeeSpecies, nvqLevel, role, yearsExperience);
 
     // Get the created user
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);

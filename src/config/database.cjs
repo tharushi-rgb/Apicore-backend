@@ -69,6 +69,16 @@ const runMigrations = () => {
   safeAddColumn('hives', 'is_starred', 'BOOLEAN DEFAULT 0');
   safeAddColumn('hives', 'is_flagged', 'BOOLEAN DEFAULT 0');
   safeAddColumn('hives', 'flag_reason', 'TEXT');
+  // UC1 registration fields
+  safeAddColumn('users', 'nic_number', 'TEXT');
+  safeAddColumn('users', 'preferred_language', "TEXT DEFAULT 'en'");
+  safeAddColumn('users', 'age_group', 'TEXT');
+  safeAddColumn('users', 'known_bee_allergy', "TEXT DEFAULT 'no'");
+  safeAddColumn('users', 'blood_group', 'TEXT');
+  safeAddColumn('users', 'beekeeping_nature', 'TEXT');
+  safeAddColumn('users', 'business_reg_no', 'TEXT');
+  safeAddColumn('users', 'primary_bee_species', 'TEXT');
+  safeAddColumn('users', 'nvq_level', 'TEXT');
   console.log('✓ Migrations complete');
 };
 runMigrations();
