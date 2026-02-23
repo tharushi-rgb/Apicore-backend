@@ -1,78 +1,90 @@
+/**
+ * index.js — ApiCore Backend entry point
+ *
+ * All configuration comes from config/app.cjs (via shared.js).
+ * Route files are registered in a single, maintainable table.
+ */
+
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
+import { config } from './shared.js';
 
-// Load environment variables
-dotenv.config();
-
-// Import SQLite-based routes
-import authRoutes from './routes/auth-sqlite.js';
-import apiariesRoutes from './routes/apiaries-sqlite.js';
-import hivesRoutes from './routes/hives-sqlite.js';
-import inspectionsRoutes from './routes/inspections-sqlite.js';
-import harvestsRoutes from './routes/harvests-sqlite.js';
-import expensesRoutes from './routes/expenses-sqlite.js';
-import incomeRoutes from './routes/income-sqlite.js';
-import dashboardRoutes from './routes/dashboard-sqlite.js';
-import profileRoutes from './routes/profile-sqlite.js';
-import planningRoutes from './routes/planning-sqlite.js';
-import feedingsRoutes from './routes/feedings-sqlite.js';
-import componentsRoutes from './routes/components-sqlite.js';
-import queensRoutes from './routes/queens-sqlite.js';
-import treatmentsRoutes from './routes/treatments-sqlite.js';
-import helpersRoutes from './routes/helpers-sqlite.js';
-import clientsRoutes from './routes/clients-sqlite.js';
+// ─── Route imports ────────────────────────────────────────────────────────────
+import authRoutes          from './routes/auth-sqlite.js';
+import apiariesRoutes      from './routes/apiaries-sqlite.js';
+import hivesRoutes         from './routes/hives-sqlite.js';
+import inspectionsRoutes   from './routes/inspections-sqlite.js';
+import harvestsRoutes      from './routes/harvests-sqlite.js';
+import expensesRoutes      from './routes/expenses-sqlite.js';
+import incomeRoutes        from './routes/income-sqlite.js';
+import dashboardRoutes     from './routes/dashboard-sqlite.js';
+import profileRoutes       from './routes/profile-sqlite.js';
+import planningRoutes      from './routes/planning-sqlite.js';
+import feedingsRoutes      from './routes/feedings-sqlite.js';
+import componentsRoutes    from './routes/components-sqlite.js';
+import queensRoutes        from './routes/queens-sqlite.js';
+import treatmentsRoutes    from './routes/treatments-sqlite.js';
+import helpersRoutes       from './routes/helpers-sqlite.js';
+import clientsRoutes       from './routes/clients-sqlite.js';
 import notificationsRoutes from './routes/notifications-sqlite.js';
-import transfersRoutes from './routes/transfers-sqlite.js';
+import transfersRoutes     from './routes/transfers-sqlite.js';
 
 const app = express();
 
-// Middleware
+// ─── Middleware ────────────────────────────────────────────────────────────────
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/apiaries', apiariesRoutes);
-app.use('/api/hives', hivesRoutes);
-app.use('/api/inspections', inspectionsRoutes);
-app.use('/api/harvests', harvestsRoutes);
-app.use('/api/expenses', expensesRoutes);
-app.use('/api/income', incomeRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/profile', profileRoutes);
-app.use('/api/planning', planningRoutes);
-app.use('/api/feedings', feedingsRoutes);
-app.use('/api/components', componentsRoutes);
-app.use('/api/queens', queensRoutes);
-app.use('/api/treatments', treatmentsRoutes);
-app.use('/api/helpers', helpersRoutes);
-app.use('/api/clients', clientsRoutes);
-app.use('/api/notifications', notificationsRoutes);
-app.use('/api/transfers', transfersRoutes);
+// ─── Route table — add / remove routes in ONE place ──────────────────────────
+const routes = [
+  ['/api/auth',          authRoutes],
+  ['/api/apiaries',      apiariesRoutes],
+  ['/api/hives',         hivesRoutes],
+  ['/api/inspections',   inspectionsRoutes],
+  ['/api/harvests',      harvestsRoutes],
+  ['/api/expenses',      expensesRoutes],
+  ['/api/income',        incomeRoutes],
+  ['/api/dashboard',     dashboardRoutes],
+  ['/api/profile',       profileRoutes],
+  ['/api/planning',      planningRoutes],
+  ['/api/feedings',      feedingsRoutes],
+  ['/api/components',    componentsRoutes],
+  ['/api/queens',        queensRoutes],
+  ['/api/treatments',    treatmentsRoutes],
+  ['/api/helpers',       helpersRoutes],
+  ['/api/clients',       clientsRoutes],
+  ['/api/notifications', notificationsRoutes],
+  ['/api/transfers',     transfersRoutes],
+];
 
-// Health check route
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', message: 'ApiCore Backend is running with SQLite database' });
-});
+routes.forEach(([path, handler]) => app.use(path, handler));
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ 
-    success: false, 
-    message: 'Server Error',
-    error: process.env.NODE_ENV === 'development' ? err.message : undefined
+// ─── Health check ─────────────────────────────────────────────────────────────
+app.get('/api/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    message: 'ApiCore Backend is running',
+    database: config.DATABASE_URL ? 'PostgreSQL' : 'SQLite',
   });
 });
 
-const PORT = process.env.PORT || 5001;
+// ─── Global error handler ─────────────────────────────────────────────────────
+app.use((err, _req, res, _next) => {
+  console.error(err.stack);
+  res.status(500).json({
+    success: false,
+    message: 'Server Error',
+    error: config.NODE_ENV === 'development' ? err.message : undefined,
+  });
+});
 
-app.listen(PORT, () => {
-  console.log(`✓ ApiCore Backend running on port ${PORT}`);
-  console.log(`✓ Using SQLite database`);
-  console.log(`✓ Available routes: /api/auth, /api/apiaries, /api/hives, /api/inspections, /api/harvests, /api/expenses, /api/income, /api/dashboard, /api/profile`);
+// ─── Start server ─────────────────────────────────────────────────────────────
+app.listen(config.PORT, () => {
+  const routePaths = routes.map(([p]) => p).join(', ');
+  console.log(`✓ ApiCore Backend running on port ${config.PORT}`);
+  console.log(`✓ Database: ${config.DATABASE_URL ? 'PostgreSQL' : 'SQLite'}`);
+  console.log(`✓ Routes: ${routePaths}`);
 });
 
 export default app;

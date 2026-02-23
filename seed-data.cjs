@@ -5,10 +5,10 @@ const bcrypt = require('bcrypt');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const config = require('./src/config/app.cjs');
 
-const newSystemRoot = path.resolve(__dirname, '..');
-const dbPath = path.resolve(newSystemRoot, 'database/apicore.db');
-const schemaPath = path.resolve(newSystemRoot, 'database/schema.sql');
+const dbPath = config.DB_PATH;
+const schemaPath = config.SCHEMA_PATH;
 
 // Ensure DB dir exists
 const dbDir = path.dirname(dbPath);

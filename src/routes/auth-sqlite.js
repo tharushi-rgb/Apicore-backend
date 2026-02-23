@@ -1,16 +1,10 @@
-// Authentication routes with SQLite database
+// Authentication routes
 import express from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const db = require('../config/database.cjs');
+import { db, config, authenticateToken, sendError } from '../shared.js';
 
 const router = express.Router();
-
-// JWT secret (in production, use environment variable)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
 // @route   POST /api/auth/register
 // @desc    Register new user
@@ -70,7 +64,7 @@ router.post('/register', async (req, res) => {
     const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
 
     // Generate JWT token
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, email: user.email }, config.JWT_SECRET, { expiresIn: '7d' });
 
     // Remove password from response
     delete user.password;
@@ -128,7 +122,7 @@ router.post('/login', async (req, res) => {
     }
 
     // Generate JWT token
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ userId: user.id, email: user.email }, config.JWT_SECRET, { expiresIn: '7d' });
 
     // Remove password from response
     delete user.password;
@@ -179,32 +173,4 @@ router.get('/me', authenticateToken, async (req, res) => {
   }
 });
 
-// Middleware to authenticate JWT token
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
-
-  if (!token) {
-    return res.status(401).json({
-      success: false,
-      message: 'Access token required'
-    });
-  }
-
-  jwt.verify(token, JWT_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).json({
-        success: false,
-        message: 'Invalid or expired token'
-      });
-    }
-
-    req.userId = decoded.userId;
-    req.userEmail = decoded.email;
-    next();
-  });
-}
-
-// Export router and middleware
 export default router;
-export { authenticateToken };

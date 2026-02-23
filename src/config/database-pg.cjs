@@ -19,16 +19,17 @@
 const { Pool } = require('pg');
 const fs   = require('fs');
 const path = require('path');
+const config = require('./app.cjs');
 
 // ─── Connection pool ──────────────────────────────────────────────────────────
 // Enable SSL for hosted databases (Supabase, Render Postgres, Railway, etc.)
 // Disabled only when connecting to localhost/127.0.0.1
-const isLocalDb = process.env.DATABASE_URL &&
-  (process.env.DATABASE_URL.includes('localhost') ||
-   process.env.DATABASE_URL.includes('127.0.0.1'));
+const isLocalDb = config.DATABASE_URL &&
+  (config.DATABASE_URL.includes('localhost') ||
+   config.DATABASE_URL.includes('127.0.0.1'));
 
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  connectionString: config.DATABASE_URL,
   ssl: isLocalDb ? false : { rejectUnauthorized: false },
 });
 
@@ -158,8 +159,7 @@ const db = {
 // ─── Schema initialisation ────────────────────────────────────────────────────
 
 async function initSchema() {
-  const repoRoot   = path.resolve(__dirname, '../..');
-  const schemaPath = path.resolve(repoRoot, 'database/schema-pg.sql');
+  const schemaPath = path.join(config.DB_DIR, 'schema-pg.sql');
 
   if (!fs.existsSync(schemaPath)) {
     console.error('✗ PostgreSQL schema not found at', schemaPath);

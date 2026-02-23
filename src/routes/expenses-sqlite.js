@@ -1,10 +1,6 @@
-// Expenses routes with SQLite database
+// Expenses routes
 import express from 'express';
-import { createRequire } from 'module';
-import { authenticateToken } from './auth-sqlite.js';
-
-const require = createRequire(import.meta.url);
-const db = require('../config/database.cjs');
+import { db, authenticateToken, sendError } from '../shared.js';
 
 const router = express.Router();
 
