@@ -341,6 +341,107 @@ router.patch('/:id/move', authenticateToken, async (req, res) => {
   }
 });
 
+// @route   POST /api/hives/:id/split
+// @desc    Split a hive — creates a new child hive copying parent attributes (R6.1)
+// @access  Private
+router.post('/:id/split', authenticateToken, async (req, res) => {
+  try {
+    const parent = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    if (!parent) {
+      return res.status(404).json({ success: false, message: 'Parent hive not found' });
+    }
+
+    const body = req.body || {};
+    const childName = body.name || `${parent.name} (Split)`;
+    const queenMoved = body.queen_moved !== undefined ? body.queen_moved : false;
+
+    // Create child hive copying parent attributes — queenless initially unless queen moved
+    const result = await db.prepare(`
+      INSERT INTO hives (
+        user_id, apiary_id, name, hive_type, location_type, status,
+        queen_present, colony_strength, gps_latitude, gps_longitude,
+        notes
+      ) VALUES (?, ?, ?, ?, ?, 'active', ?, 'weak', ?, ?, ?)
+    `).run(
+      req.userId,
+      parent.apiary_id,
+      childName,
+      parent.hive_type,
+      parent.location_type,
+      queenMoved ? 1 : 0,
+      parent.gps_latitude,
+      parent.gps_longitude,
+      `Split from ${parent.name} on ${new Date().toISOString().split('T')[0]}`
+    );
+
+    // If queen moved to child, mark parent as queenless
+    if (queenMoved) {
+      await db.prepare('UPDATE hives SET queen_present = 0, status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+        .run('queenless', parent.id);
+    }
+
+    // Update parent notes
+    const parentNotes = parent.notes ? `${parent.notes}\nSplit performed on ${new Date().toISOString().split('T')[0]}, created child: ${childName}` : `Split performed on ${new Date().toISOString().split('T')[0]}, created child: ${childName}`;
+    await db.prepare('UPDATE hives SET notes = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?')
+      .run(parentNotes, parent.id);
+
+    // Record as colony transfer
+    try {
+      await db.prepare(`
+        INSERT INTO colony_transfers (user_id, source_hive_id, target_hive_id, transfer_date, transfer_type, queen_moved, notes)
+        VALUES (?, ?, ?, ?, 'split', ?, ?)
+      `).run(req.userId, parent.id, result.lastInsertRowid, new Date().toISOString().split('T')[0], queenMoved ? 1 : 0, `Hive split from ${parent.name}`);
+    } catch (_) {}
+
+    const child = await db.prepare('SELECT * FROM hives WHERE id = ?').get(result.lastInsertRowid);
+
+    res.status(201).json({
+      success: true,
+      message: `Hive split successfully. Child hive "${childName}" created.`,
+      data: { parent_hive_id: parent.id, child_hive: child }
+    });
+  } catch (error) {
+    console.error('Split hive error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   GET /api/hives/saturation-check
+// @desc    Check zone saturation for standalone hive at given coordinates (R5.1)
+// @access  Private
+router.get('/saturation-check', authenticateToken, async (req, res) => {
+  try {
+    const lat = parseFloat(req.query.lat);
+    const lng = parseFloat(req.query.lng);
+    if (isNaN(lat) || isNaN(lng)) {
+      return res.status(400).json({ success: false, message: 'Valid lat and lng query params required' });
+    }
+
+    // Get all hives with GPS coordinates
+    const allHives = await db.prepare('SELECT gps_latitude, gps_longitude FROM hives WHERE gps_latitude IS NOT NULL AND gps_longitude IS NOT NULL').all();
+
+    // Count hives within 15km using Haversine
+    let count = 0;
+    for (const h of allHives) {
+      const R = 6371;
+      const dLat = ((h.gps_latitude - lat) * Math.PI) / 180;
+      const dLng = ((h.gps_longitude - lng) * Math.PI) / 180;
+      const a = Math.sin(dLat / 2) ** 2 + Math.cos((lat * Math.PI) / 180) * Math.cos((h.gps_latitude * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+      const d = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      if (d <= 15) count++;
+    }
+
+    let risk = 'low';
+    if (count > 50) risk = 'high';
+    else if (count > 20) risk = 'medium';
+
+    res.json({ success: true, data: { hives_within_15km: count, saturation_risk: risk } });
+  } catch (error) {
+    console.error('Saturation check error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // @route   PATCH /api/hives/:id/star
 // @desc    Toggle hive starred status
 // @access  Private

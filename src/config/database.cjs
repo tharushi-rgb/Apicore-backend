@@ -78,6 +78,46 @@ if (config.DATABASE_URL) {
   safeAddColumn('users', 'business_reg_no',    'TEXT');
   safeAddColumn('users', 'primary_bee_species','TEXT');
   safeAddColumn('users', 'nvq_level',          'TEXT');
+
+  // Contract & Ownership fields for apiaries (R4.2, R5.4-5.6)
+  safeAddColumn('apiaries', 'client_name',        'TEXT');
+  safeAddColumn('apiaries', 'client_contact',     'TEXT');
+  safeAddColumn('apiaries', 'landlord_name',      'TEXT');
+  safeAddColumn('apiaries', 'landlord_contact',   'TEXT');
+  safeAddColumn('apiaries', 'contract_start',     'DATE');
+  safeAddColumn('apiaries', 'contract_end',       'DATE');
+  safeAddColumn('apiaries', 'rental_fee',         'REAL');
+  safeAddColumn('apiaries', 'landlord_signature', 'TEXT');
+
+  // Dynamic hive type fields (R5.2)
+  safeAddColumn('hives', 'num_frames',         'INTEGER');
+  safeAddColumn('hives', 'num_supers',         'INTEGER');
+  safeAddColumn('hives', 'brood_box_type',     'TEXT');
+  safeAddColumn('hives', 'material',           'TEXT');
+  safeAddColumn('hives', 'bottom_type',        'TEXT');
+  safeAddColumn('hives', 'entrance_position',  'TEXT');
+  safeAddColumn('hives', 'num_entrances',      'INTEGER');
+  safeAddColumn('hives', 'queen_excluder',     'BOOLEAN DEFAULT 0');
+  safeAddColumn('hives', 'pot_volume_liters',  'REAL');
+  safeAddColumn('hives', 'pot_material',       'TEXT');
+  safeAddColumn('hives', 'entrance_size',      'TEXT');
+  safeAddColumn('hives', 'log_length_cm',      'REAL');
+  safeAddColumn('hives', 'log_diameter_cm',    'REAL');
+  safeAddColumn('hives', 'wood_type',          'TEXT');
+  safeAddColumn('hives', 'stingless_species',  'TEXT');
+  safeAddColumn('hives', 'colony_size',        'TEXT');
+  safeAddColumn('hives', 'bee_source',         'TEXT');
+  safeAddColumn('hives', 'origin',             'TEXT');
+  safeAddColumn('hives', 'established_date',   'DATE');
+  // Ownership context (R5.4/R5.5/R5.6)
+  safeAddColumn('hives', 'ownership_type',     "TEXT DEFAULT 'internal'");
+  safeAddColumn('hives', 'owner_name',         'TEXT');
+  safeAddColumn('hives', 'owner_contact',      'TEXT');
+  safeAddColumn('hives', 'contract_terms',     'TEXT');
+  // Split tracking (R6.1)
+  safeAddColumn('hives', 'parent_hive_id',     'INTEGER');
+  safeAddColumn('hives', 'split_date',         'DATE');
+
   console.log('✓ Migrations complete');
 
   console.log('✓ Connected to SQLite database at', dbPath);

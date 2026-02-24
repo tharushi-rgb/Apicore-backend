@@ -147,7 +147,48 @@ async function generateAutomatedAlerts(userId) {
       }
     }
 
-    // 5. Queenless hive alerts
+    // 5. Contract expiry warnings (30-day and 7-day)
+    try {
+      const expiringApiaries = await db.prepare(`
+        SELECT id, name, contract_end,
+          CAST(julianday(contract_end) - julianday('now') AS INTEGER) as days_until
+        FROM apiaries
+        WHERE user_id = ? AND contract_end IS NOT NULL AND contract_end != ''
+          AND julianday(contract_end) >= julianday('now') - 1
+          AND julianday(contract_end) <= julianday('now') + 31
+      `).all(userId);
+
+      for (const apiary of expiringApiaries) {
+        const severity = apiary.days_until <= 0 ? 'critical' : apiary.days_until <= 7 ? 'warning' : 'info';
+        const title = apiary.days_until <= 0 ? 'Contract Expired' : 'Contract Expiry Warning';
+        const msg = apiary.days_until <= 0
+          ? `${apiary.name} — Contract has expired. Action required.`
+          : `${apiary.name} — Contract expires in ${apiary.days_until} days (${apiary.contract_end})`;
+
+        const exists = await db.prepare(`
+          SELECT id FROM notifications
+          WHERE user_id = ? AND notification_type = 'contract_expiry' AND related_id = ?
+            AND date(created_at) >= date('now', '-3 days')
+        `).get(userId, apiary.id);
+
+        if (!exists) {
+          await db.prepare(`
+            INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
+            VALUES (?, 'contract_expiry', ?, ?, ?, 'apiary', ?)
+          `).run(userId, severity, title, msg, apiary.id);
+        }
+      }
+
+      // Auto-flag expired apiaries (Expiry Action)
+      await db.prepare(`
+        UPDATE apiaries SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+        WHERE user_id = ? AND contract_end IS NOT NULL AND contract_end != ''
+          AND julianday(contract_end) < julianday('now')
+          AND status != 'expired' AND status != 'inactive'
+      `).run(userId);
+    } catch (_) { /* contract fields may not exist in older schemas */ }
+
+    // 6. Queenless hive alerts
     const queenlessHives = await db.prepare(`
       SELECT h.id, h.name, a.name as apiary_name
       FROM hives h
@@ -174,45 +215,6 @@ async function generateAutomatedAlerts(userId) {
         );
       }
     }
-
-    // 6. Contract expiry notifications (30-day and 7-day warnings)
-    const expiringApiaries = await db.prepare(`
-      SELECT a.id, a.name, a.established_date,
-        CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) as days_until_expiry
-      FROM apiaries a
-      WHERE a.user_id = ? AND a.status = 'active' AND a.established_date IS NOT NULL
-        AND CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) <= 30
-        AND CAST(julianday(a.established_date, '+1 year') - julianday('now') AS INTEGER) >= 0
-    `).all(userId);
-
-    for (const apiary of expiringApiaries) {
-      const severity = apiary.days_until_expiry <= 7 ? 'critical' : 'warning';
-      const exists = await db.prepare(`
-        SELECT id FROM notifications
-        WHERE user_id = ? AND notification_type = 'contract_expiry' AND related_id = ?
-          AND date(created_at) >= date('now', '-3 days')
-      `).get(userId, apiary.id);
-
-      if (!exists) {
-        await db.prepare(`
-          INSERT INTO notifications (user_id, notification_type, severity, title, message, related_type, related_id)
-          VALUES (?, 'contract_expiry', ?, ?, ?, 'apiary', ?)
-        `).run(
-          userId, severity,
-          'Contract Expiry Warning',
-          `Apiary '${apiary.name}' contract expires in ${apiary.days_until_expiry} days. Renew or take action.`,
-          apiary.id
-        );
-      }
-    }
-
-    // 7. Auto-flag expired apiaries
-    await db.prepare(`
-      UPDATE apiaries
-      SET status = 'expired', updated_at = datetime('now')
-      WHERE user_id = ? AND status = 'active' AND established_date IS NOT NULL
-        AND julianday(established_date, '+1 year') < julianday('now')
-    `).run(userId);
   }
 
   // ─── For Helpers ─────────────────────────────────────────────────

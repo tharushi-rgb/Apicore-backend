@@ -100,12 +100,12 @@ router.post('/', authenticateToken, async (req, res) => {
       INSERT INTO apiaries (
         user_id, name, district, area, established_date, status, 
         apiary_type, terrain, forage_primary, blooming_window,
-        gps_latitude, gps_longitude
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        gps_latitude, gps_longitude, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       req.userId, name, district, area, establishedDate, status,
       apiaryType, terrain, foragePrimary, bloomingWindow,
-      gpsLatitude, gpsLongitude
+      gpsLatitude, gpsLongitude, body.notes || null
     );
 
     // Get the created apiary
