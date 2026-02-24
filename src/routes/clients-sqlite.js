@@ -184,6 +184,32 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
     // Notify on status change
     if (body.status && body.status !== existing.status) {
+      // Auto-record income when completed via full update (R15/Auto-record)
+      if (body.status === 'completed') {
+        const payAmt = body.paymentAmount !== undefined ? body.paymentAmount : existing.payment_amount;
+        if (payAmt && payAmt > 0) {
+          try {
+            const existingIncome = await db.prepare(
+              "SELECT id FROM income WHERE user_id = ? AND income_type = 'client_service' AND description LIKE ?"
+            ).get(existing.user_id, `%[Service #${existing.id}]%`);
+            if (!existingIncome) {
+              const cDate = new Date().toISOString().split('T')[0];
+              await db.prepare(`
+                INSERT INTO income (user_id, income_date, income_type, amount, buyer_name, description, notes)
+                VALUES (?, ?, 'client_service', ?, ?, ?, ?)
+              `).run(
+                existing.user_id, cDate, payAmt,
+                body.clientName || existing.client_name,
+                `Client service: ${(body.serviceType || existing.service_type).replace('_', ' ')} [Service #${existing.id}]`,
+                `Auto-recorded from completed client service for ${body.clientName || existing.client_name}`
+              );
+            }
+          } catch (incomeErr) {
+            console.error('Auto-record income error (non-fatal):', incomeErr);
+          }
+        }
+      }
+
       // Notify admin if helper updates status
       if (existing.user_id !== req.userId) {
         createNotification(
@@ -241,6 +267,32 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     await db.prepare(`
       UPDATE client_services SET status = ?, completed_date = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?
     `).run(status, completedDate, req.params.id);
+
+    // Auto-record income in finance when client service is completed with payment (R15/Auto-record)
+    if (status === 'completed' && existing.payment_amount && existing.payment_amount > 0) {
+      try {
+        // Check if income was already auto-recorded for this service
+        const existingIncome = await db.prepare(
+          "SELECT id FROM income WHERE user_id = ? AND income_type = 'client_service' AND description LIKE ?"
+        ).get(existing.user_id, `%[Service #${existing.id}]%`);
+
+        if (!existingIncome) {
+          await db.prepare(`
+            INSERT INTO income (user_id, income_date, income_type, amount, buyer_name, description, notes)
+            VALUES (?, ?, 'client_service', ?, ?, ?, ?)
+          `).run(
+            existing.user_id,
+            completedDate,
+            existing.payment_amount,
+            existing.client_name,
+            `Client service: ${existing.service_type.replace('_', ' ')} [Service #${existing.id}]`,
+            `Auto-recorded from completed client service for ${existing.client_name}`
+          );
+        }
+      } catch (incomeErr) {
+        console.error('Auto-record income error (non-fatal):', incomeErr);
+      }
+    }
 
     const service = await db.prepare(`
       SELECT cs.*, u.name as assigned_to_name

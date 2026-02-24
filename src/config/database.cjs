@@ -118,6 +118,22 @@ if (config.DATABASE_URL) {
   safeAddColumn('hives', 'parent_hive_id',     'INTEGER');
   safeAddColumn('hives', 'split_date',         'DATE');
 
+  // Hive edit locks table (R9.4) — create if not exists
+  try {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS hive_locks (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        hive_id INTEGER NOT NULL UNIQUE,
+        locked_by INTEGER NOT NULL,
+        locked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME NOT NULL,
+        FOREIGN KEY (hive_id) REFERENCES hives(id) ON DELETE CASCADE,
+        FOREIGN KEY (locked_by) REFERENCES users(id) ON DELETE CASCADE
+      )
+    `);
+    console.log('  ✓ hive_locks table ensured');
+  } catch (_) { /* table may already exist */ }
+
   console.log('✓ Migrations complete');
 
   console.log('✓ Connected to SQLite database at', dbPath);

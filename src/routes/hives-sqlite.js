@@ -150,11 +150,105 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
+// ─── Hive Edit Locking (R9.4) ──────────────────────────────────────────────
+
+// Helper: clean expired locks
+async function cleanExpiredLocks() {
+  try {
+    await db.prepare("DELETE FROM hive_locks WHERE expires_at < datetime('now')").run();
+  } catch (_) { /* ignore if table doesn't exist yet */ }
+}
+
+// @route   POST /api/hives/:id/lock
+// @desc    Acquire edit lock on a hive (5 minute expiry)
+// @access  Private
+router.post('/:id/lock', authenticateToken, async (req, res) => {
+  try {
+    await cleanExpiredLocks();
+
+    const hive = await db.prepare('SELECT * FROM hives WHERE id = ?').get(req.params.id);
+    if (!hive) {
+      return res.status(404).json({ success: false, message: 'Hive not found' });
+    }
+
+    // Check for existing lock
+    const existingLock = await db.prepare('SELECT hl.*, u.name as locked_by_name FROM hive_locks hl LEFT JOIN users u ON hl.locked_by = u.id WHERE hl.hive_id = ?').get(req.params.id);
+    if (existingLock) {
+      if (existingLock.locked_by === req.userId) {
+        // Refresh own lock
+        await db.prepare("UPDATE hive_locks SET expires_at = datetime('now', '+5 minutes'), locked_at = CURRENT_TIMESTAMP WHERE hive_id = ?").run(req.params.id);
+        return res.json({ success: true, message: 'Lock refreshed', data: { locked: true, lockedBy: req.userId } });
+      }
+      return res.status(409).json({
+        success: false,
+        message: `Hive is currently being edited by ${existingLock.locked_by_name || 'another user'}`,
+        data: { locked: true, lockedBy: existingLock.locked_by, lockedByName: existingLock.locked_by_name }
+      });
+    }
+
+    // Acquire lock
+    await db.prepare("INSERT INTO hive_locks (hive_id, locked_by, expires_at) VALUES (?, ?, datetime('now', '+5 minutes'))").run(req.params.id, req.userId);
+    res.json({ success: true, message: 'Lock acquired', data: { locked: true, lockedBy: req.userId } });
+  } catch (error) {
+    console.error('Acquire lock error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   DELETE /api/hives/:id/lock
+// @desc    Release edit lock on a hive
+// @access  Private
+router.delete('/:id/lock', authenticateToken, async (req, res) => {
+  try {
+    const lock = await db.prepare('SELECT * FROM hive_locks WHERE hive_id = ?').get(req.params.id);
+    if (lock && lock.locked_by !== req.userId) {
+      return res.status(403).json({ success: false, message: 'You do not hold the lock on this hive' });
+    }
+    await db.prepare('DELETE FROM hive_locks WHERE hive_id = ?').run(req.params.id);
+    res.json({ success: true, message: 'Lock released' });
+  } catch (error) {
+    console.error('Release lock error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
+// @route   GET /api/hives/:id/lock
+// @desc    Check lock status on a hive
+// @access  Private
+router.get('/:id/lock', authenticateToken, async (req, res) => {
+  try {
+    await cleanExpiredLocks();
+    const lock = await db.prepare('SELECT hl.*, u.name as locked_by_name FROM hive_locks hl LEFT JOIN users u ON hl.locked_by = u.id WHERE hl.hive_id = ?').get(req.params.id);
+    if (lock) {
+      res.json({
+        success: true,
+        data: { locked: true, lockedBy: lock.locked_by, lockedByName: lock.locked_by_name, expiresAt: lock.expires_at, isOwner: lock.locked_by === req.userId }
+      });
+    } else {
+      res.json({ success: true, data: { locked: false } });
+    }
+  } catch (error) {
+    console.error('Check lock error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+});
+
 // @route   PUT /api/hives/:id
 // @desc    Update hive
 // @access  Private
 router.put('/:id', authenticateToken, async (req, res) => {
   try {
+    // R9.4: Check edit lock before allowing update
+    await cleanExpiredLocks();
+    const lock = await db.prepare('SELECT * FROM hive_locks WHERE hive_id = ?').get(req.params.id);
+    if (lock && lock.locked_by !== req.userId) {
+      const lockUser = await db.prepare('SELECT name FROM users WHERE id = ?').get(lock.locked_by);
+      return res.status(409).json({
+        success: false,
+        message: `Hive is currently being edited by ${lockUser?.name || 'another user'}. Please try again later.`
+      });
+    }
+
     const {
       apiaryId,
       name,
