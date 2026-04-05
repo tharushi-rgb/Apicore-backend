@@ -6,6 +6,10 @@ import { db, config, authenticateToken, sendError } from '../shared.js';
 
 const router = express.Router();
 
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || '').trim());
+}
+
 // @route   POST /api/auth/register
 // @desc    Register new user
 // @access  Public
@@ -13,7 +17,7 @@ router.post('/register', async (req, res) => {
   try {
     const body = req.body;
     const name = body.name || body.fullName;
-    const email = body.email;
+    const email = String(body.email || '').trim();
     const password = body.password;
     const phone = body.phone || body.phoneNumber || null;
     const nicNumber = body.nic_number || body.nicNumber || null;
@@ -34,6 +38,13 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Please provide name, email, and password'
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address (example: user@example.com)'
       });
     }
 
@@ -91,13 +102,21 @@ router.post('/register', async (req, res) => {
 // @access  Public
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const email = String(req.body?.email || '').trim();
+    const { password } = req.body;
 
     // Validate input
     if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: 'Please provide email and password'
+      });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address (example: user@example.com)'
       });
     }
 

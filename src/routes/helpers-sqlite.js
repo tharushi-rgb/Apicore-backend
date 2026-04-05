@@ -6,6 +6,10 @@ import { db, authenticateToken, sendError } from '../shared.js';
 
 const router = express.Router();
 
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(email || '').trim());
+}
+
 // ── INVITATION ENDPOINTS ──────────────────────────────────────────────
 
 // @route   POST /api/helpers/invite
@@ -18,9 +22,16 @@ router.post('/invite', authenticateToken, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Only admin/beekeeper users can invite helpers' });
     }
 
-    const { email } = req.body;
+    const email = String(req.body?.email || '').trim();
     if (!email) {
       return res.status(400).json({ success: false, message: 'Email is required' });
+    }
+
+    if (!isValidEmail(email)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please provide a valid email address (example: user@example.com)'
+      });
     }
 
     // Check if already registered
